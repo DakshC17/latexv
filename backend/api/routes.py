@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 from models.compile_models import CompileRequest, CompileResponse
 from models.generate_models import GenerateRequest,GenerateResponse
+from agents.generator import generate_document
 
 router = APIRouter()
 
@@ -12,7 +13,7 @@ def health_check():
 async def generate_request(data:GenerateRequest):
 
     prompt = data.prompt
-    latex_output = f"Generated latex for {prompt}"
+    latex_output = generate_document(prompt)
     return GenerateResponse(latex=latex_output)
 
 
