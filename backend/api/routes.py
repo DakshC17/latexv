@@ -1,7 +1,10 @@
 from fastapi import APIRouter
+from fastapi import HTTPException
 from models.compile_models import CompileRequest, CompileResponse
 from models.generate_models import GenerateRequest,GenerateResponse
 from agents.generator import generate_document
+from fastapi.responses import FileResponse
+from tools.compiler import compile_latex, LatexCompilationError
 
 router = APIRouter()
 
@@ -17,8 +20,17 @@ async def generate_request(data:GenerateRequest):
     return GenerateResponse(latex=latex_output)
 
 
-@router.post("/compile",response_model=CompileResponse)
-async def compile_latex(data:CompileRequest):
+@router.post("/compile")
+async def compile_document(data: CompileRequest):
+
     latex_code = data.latex
-    print(latex_code)
-    return CompileResponse(response="response successfull")
+    try:
+        pdf_path = compile_latex(latex_code)
+    except LatexCompilationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return FileResponse(
+        path=pdf_path,
+        filename="document.pdf",
+        media_type="application/pdf"
+    )
