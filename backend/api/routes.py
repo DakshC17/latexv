@@ -4,6 +4,8 @@ from fastapi.responses import FileResponse
 
 from agents.generator import generate_document
 from agents.latex_agent import latex_agent
+from db.models import Document, DocumentCreate, DocumentUpdate
+from db import queries as db_queries
 from models.compile_models import CompileRequest
 from models.generate_models import GenerateRequest, GenerateResponse
 from tools.compiler import LatexCompilationError, compile_latex
@@ -60,3 +62,37 @@ async def agent_generate(data: GenerateRequest):
             "attempts": result["retries"],
         },
     )
+
+
+@router.post("/documents", response_model=Document)
+async def create_document(data: DocumentCreate):
+    return db_queries.create_document(data)
+
+
+@router.get("/documents/{doc_id}", response_model=Document)
+async def get_document(doc_id: str):
+    doc = db_queries.get_document(doc_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    return doc
+
+
+@router.get("/documents", response_model=list[Document])
+async def list_documents(user_id: str):
+    return db_queries.list_user_documents(user_id)
+
+
+@router.put("/documents/{doc_id}", response_model=Document)
+async def update_document(doc_id: str, data: DocumentUpdate):
+    doc = db_queries.update_document(doc_id, data)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    return doc
+
+
+@router.delete("/documents/{doc_id}")
+async def delete_document(doc_id: str):
+    success = db_queries.delete_document(doc_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Document not found")
+    return {"deleted": True}
