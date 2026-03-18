@@ -1,9 +1,9 @@
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 
 from agents.generator import generate_document
-from agents.latex_agent import latex_agent
+from agents.latex_agent import latex_agent, get_initial_state
 from db.models import Document, DocumentCreate, DocumentUpdate
 from db import queries as db_queries
 from models.compile_models import CompileRequest
@@ -140,3 +140,33 @@ async def delete_document(request: Request, doc_id: str):
         raise HTTPException(status_code=403, detail="Access denied")
     success = db_queries.delete_document(doc_id)
     return {"deleted": True}
+
+
+async def agent_stream(prompt: str):
+    initial_state = get_initial_state(prompt)
+    async for event in latex_agent.astream_events(initial_state, version="v2"):
+        event_type = event.get("event", "")
+        if event_type == "on_chain_stream":
+            node_name = event.get("name", "unknown")
+            data = event.get("data", {})
+            if "output" in data:
+                output = data["output"]
+                yield f"data: {output}\n\n"
+        elif event_type == "on_chain_end":
+            final_state = event.get("data", {}).get("output", {})
+            yield f"data: {final_state}\n\n"
+
+
+@router.post("/v2/agent/stream")
+async def agent_stream_endpoint(request: Request, data: GenerateRequest):
+    client_id = _get_client_id(request)
+    if redis_rate.is_rate_limited(client_id):
+        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+    return StreamingResponse(
+        agent_stream(data.prompt),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        },
+    )

@@ -32,3 +32,14 @@ def build_latex_agent():
 
 
 latex_agent = build_latex_agent()
+
+
+def get_initial_state(prompt: str) -> LatexAgentState:
+    return {
+        "prompt": prompt,
+        "latex": "",
+        "error": "",
+        "pdf_path": "",
+        "retries": 0,
+        "status": "generating",
+    }
