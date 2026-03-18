@@ -94,6 +94,7 @@ async def agent_generate(request: Request, data: GenerateRequest):
 async def create_document(request: Request, data: DocumentCreate):
     if redis_rate.is_rate_limited(_get_client_id(request)):
         raise HTTPException(status_code=429, detail="Rate limit exceeded")
+    data.user_id = request.state.user_id
     return db_queries.create_document(data)
 
 
@@ -104,31 +105,38 @@ async def get_document(request: Request, doc_id: str):
     doc = db_queries.get_document(doc_id)
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
+    if doc.get("user_id") != request.state.user_id:
+        raise HTTPException(status_code=403, detail="Access denied")
     return doc
 
 
 @router.get("/documents", response_model=list[Document])
-async def list_documents(request: Request, user_id: str):
+async def list_documents(request: Request):
     if redis_rate.is_rate_limited(_get_client_id(request)):
         raise HTTPException(status_code=429, detail="Rate limit exceeded")
-    return db_queries.list_user_documents(user_id)
+    return db_queries.list_user_documents(request.state.user_id)
 
 
 @router.put("/documents/{doc_id}", response_model=Document)
 async def update_document(request: Request, doc_id: str, data: DocumentUpdate):
     if redis_rate.is_rate_limited(_get_client_id(request)):
         raise HTTPException(status_code=429, detail="Rate limit exceeded")
-    doc = db_queries.update_document(doc_id, data)
+    doc = db_queries.get_document(doc_id)
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
-    return doc
+    if doc.get("user_id") != request.state.user_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    return db_queries.update_document(doc_id, data)
 
 
 @router.delete("/documents/{doc_id}")
 async def delete_document(request: Request, doc_id: str):
     if redis_rate.is_rate_limited(_get_client_id(request)):
         raise HTTPException(status_code=429, detail="Rate limit exceeded")
-    success = db_queries.delete_document(doc_id)
-    if not success:
+    doc = db_queries.get_document(doc_id)
+    if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
+    if doc.get("user_id") != request.state.user_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    success = db_queries.delete_document(doc_id)
     return {"deleted": True}

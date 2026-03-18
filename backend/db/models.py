@@ -16,7 +16,7 @@ class Document(BaseModel):
 
 
 class DocumentCreate(BaseModel):
-    user_id: str
+    user_id: Optional[str] = None
     title: Optional[str] = None
     prompt: str
     latex: str
