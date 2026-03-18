@@ -5,6 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "bcrypt>=5.0.0",
     "fastapi>=0.135.1",
     "google-genai>=1.66.0",
     "google-generativeai>=0.8.6",
@@ -12,7 +13,9 @@ dependencies = [
     "langchain-google-genai>=4.2.1",
     "langgraph>=1.1.2",
     "pydantic>=2.12.5",
+    "pyjwt>=2.12.1",
     "python-dotenv>=1.2.2",
+    "python-multipart>=0.0.22",
     "supabase>=2.28.2",
     "upstash-redis>=1.7.0",
     "uvicorn>=0.41.0",
