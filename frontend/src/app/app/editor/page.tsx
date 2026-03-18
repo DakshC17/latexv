@@ -65,7 +65,10 @@ export default function EditorPage() {
         if (data.error) setFinalError(data.error);
       });
 
-      if (result?.pdf_path) {
+      if (result?.pdf_url) {
+        setPdfUrl(result.pdf_url);
+        setStatus("done");
+      } else if (result?.pdf_path) {
         setPdfUrl(result.pdf_path);
         setStatus("done");
       } else {

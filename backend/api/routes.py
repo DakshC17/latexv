@@ -1,3 +1,5 @@
+import json
+import uuid
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, StreamingResponse
@@ -10,6 +12,7 @@ from models.compile_models import CompileRequest
 from models.generate_models import GenerateRequest, GenerateResponse
 from redis import cache as redis_cache
 from redis import rate_limiter as redis_rate
+from services.storage import upload_pdf
 from tools.compiler import LatexCompilationError, compile_latex
 
 router = APIRouter()
@@ -54,31 +57,23 @@ async def agent_generate(request: Request, data: GenerateRequest):
     if redis_rate.is_rate_limited(client_id):
         raise HTTPException(status_code=429, detail="Rate limit exceeded")
 
-    cached_pdf = redis_cache.get_cached_latex_result(data.prompt)
-    if cached_pdf:
-        return FileResponse(
-            path=cached_pdf,
-            filename="document.pdf",
-            media_type="application/pdf",
-        )
-
-    initial_state = {
-        "prompt": data.prompt,
-        "latex": "",
-        "error": "",
-        "pdf_path": "",
-        "retries": 0,
-        "status": "generating",
-    }
+    initial_state = get_initial_state(data.prompt)
     result = await run_in_threadpool(latex_agent.invoke, initial_state)
 
     if result["status"] == "done":
-        redis_cache.cache_latex_result(data.prompt, result["pdf_path"])
-        return FileResponse(
-            path=result["pdf_path"],
-            filename="document.pdf",
-            media_type="application/pdf",
-        )
+        try:
+            doc_id = str(uuid.uuid4())
+            pdf_url = upload_pdf(
+                local_path=result["pdf_path"],
+                user_id=request.state.user_id,
+                doc_id=doc_id,
+            )
+            redis_cache.cache_latex_result(data.prompt, result["pdf_path"])
+            return {"pdf_url": pdf_url, "latex": result["latex"]}
+        except Exception as exc:
+            raise HTTPException(
+                status_code=500, detail=f"PDF upload failed: {str(exc)}"
+            )
 
     raise HTTPException(
         status_code=422,
@@ -142,8 +137,12 @@ async def delete_document(request: Request, doc_id: str):
     return {"deleted": True}
 
 
-async def agent_stream(prompt: str):
+async def agent_stream(prompt: str, user_id: str):
+    doc_id = str(uuid.uuid4())
     initial_state = get_initial_state(prompt)
+
+    final_result = None
+
     async for event in latex_agent.astream_events(initial_state, version="v2"):
         event_type = event.get("event", "")
         if event_type == "on_chain_stream":
@@ -151,10 +150,29 @@ async def agent_stream(prompt: str):
             data = event.get("data", {})
             if "output" in data:
                 output = data["output"]
-                yield f"data: {output}\n\n"
+                if isinstance(output, dict):
+                    final_result = output
+                yield f"data: {json.dumps(output)}\n\n"
         elif event_type == "on_chain_end":
             final_state = event.get("data", {}).get("output", {})
-            yield f"data: {final_state}\n\n"
+            final_result = final_state
+
+    if (
+        final_result
+        and final_result.get("status") == "done"
+        and final_result.get("pdf_path")
+    ):
+        try:
+            pdf_url = upload_pdf(
+                local_path=final_result["pdf_path"],
+                user_id=user_id,
+                doc_id=doc_id,
+            )
+            final_result["pdf_url"] = pdf_url
+            yield f"data: {json.dumps(final_result)}\n\n"
+        except Exception as e:
+            final_result["upload_error"] = str(e)
+            yield f"data: {json.dumps(final_result)}\n\n"
 
 
 @router.post("/v2/agent/stream")
@@ -163,7 +181,7 @@ async def agent_stream_endpoint(request: Request, data: GenerateRequest):
     if redis_rate.is_rate_limited(client_id):
         raise HTTPException(status_code=429, detail="Rate limit exceeded")
     return StreamingResponse(
-        agent_stream(data.prompt),
+        agent_stream(data.prompt, user_id=request.state.user_id),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

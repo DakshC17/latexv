@@ -114,6 +114,7 @@ export interface AgentEvent {
   latex?: string;
   error?: string;
   pdf_path?: string;
+  pdf_url?: string;
   retries?: number;
   raw?: string;
 }
