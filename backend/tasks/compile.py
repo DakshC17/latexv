@@ -1,8 +1,9 @@
-import uuid
 from tasks.celery_app import celery_app
 from agents.latex_agent import latex_agent, get_initial_state
 from services.storage import upload_pdf
 from db import versions as version_queries
+from db import queries as doc_queries
+from db.models import DocumentUpdate
 
 
 @celery_app.task(bind=True)
@@ -33,6 +34,15 @@ def compile_document_task(self, prompt: str, document_id: str, user_id: str):
             status="success",
         )
 
+        doc_queries.update_document(
+            document_id,
+            DocumentUpdate(
+                latex=result["latex"],
+                pdf_url=pdf_url,
+                status="success",
+            ),
+        )
+
         return {
             "status": "done",
             "pdf_url": pdf_url,
@@ -40,6 +50,8 @@ def compile_document_task(self, prompt: str, document_id: str, user_id: str):
             "version_id": version["id"],
             "version_number": version_number,
         }
+
+    doc_queries.update_document(document_id, DocumentUpdate(status="failed"))
 
     return {
         "status": "failed",
