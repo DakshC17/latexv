@@ -8,11 +8,13 @@ from agents.generator import generate_document
 from agents.latex_agent import latex_agent, get_initial_state
 from db.models import Document, DocumentCreate, DocumentUpdate
 from db import queries as db_queries
+from db import versions as version_queries
 from models.compile_models import CompileRequest
 from models.generate_models import GenerateRequest, GenerateResponse
 from redis import cache as redis_cache
 from redis import rate_limiter as redis_rate
 from services.storage import upload_pdf
+from tasks.compile import compile_document_task
 from tools.compiler import LatexCompilationError, compile_latex
 
 router = APIRouter()
@@ -85,6 +87,59 @@ async def agent_generate(request: Request, data: GenerateRequest):
     )
 
 
+@router.post("/v2/agent/async")
+async def agent_async(request: Request, data: GenerateRequest):
+    """Submit document generation as background job. Returns job_id for polling."""
+    if redis_rate.is_rate_limited(_get_client_id(request)):
+        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+
+    doc = db_queries.create_document(
+        DocumentCreate(
+            user_id=request.state.user_id,
+            prompt=data.prompt,
+            latex="",
+            status="processing",
+        )
+    )
+
+    task = compile_document_task.delay(
+        prompt=data.prompt,
+        document_id=doc["id"],
+        user_id=request.state.user_id,
+    )
+
+    return {
+        "job_id": task.id,
+        "document_id": doc["id"],
+        "status": "pending",
+    }
+
+
+@router.get("/status/{job_id}")
+async def get_job_status(request: Request, job_id: str):
+    """Poll for job status and result."""
+    if redis_rate.is_rate_limited(_get_client_id(request)):
+        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+
+    from tasks.celery_app import celery_app
+
+    result = celery_app.AsyncResult(job_id)
+
+    response = {
+        "job_id": job_id,
+        "status": result.state.lower() if result.state else "unknown",
+    }
+
+    if result.state == "SUCCESS":
+        response.update(result.result)
+    elif result.state == "FAILURE":
+        response["error"] = str(result.info)
+    elif result.state == "PROGRESS":
+        response["meta"] = result.info
+
+    return response
+
+
 @router.post("/documents", response_model=Document)
 async def create_document(request: Request, data: DocumentCreate):
     if redis_rate.is_rate_limited(_get_client_id(request)):
@@ -135,6 +190,35 @@ async def delete_document(request: Request, doc_id: str):
         raise HTTPException(status_code=403, detail="Access denied")
     success = db_queries.delete_document(doc_id)
     return {"deleted": True}
+
+
+@router.get("/documents/{doc_id}/versions")
+async def get_document_versions(request: Request, doc_id: str):
+    """Get all versions of a document."""
+    if redis_rate.is_rate_limited(_get_client_id(request)):
+        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+    doc = db_queries.get_document(doc_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if doc.get("user_id") != request.state.user_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    return version_queries.get_versions(doc_id)
+
+
+@router.get("/documents/{doc_id}/versions/{version_id}")
+async def get_version(request: Request, doc_id: str, version_id: str):
+    """Get a specific version of a document."""
+    if redis_rate.is_rate_limited(_get_client_id(request)):
+        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+    doc = db_queries.get_document(doc_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if doc.get("user_id") != request.state.user_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    version = version_queries.get_version(version_id)
+    if not version or version["document_id"] != doc_id:
+        raise HTTPException(status_code=404, detail="Version not found")
+    return version
 
 
 async def agent_stream(prompt: str, user_id: str):

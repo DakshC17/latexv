@@ -43,5 +43,5 @@ def delete_pdf(storage_url: str) -> bool:
     if not path:
         return False
 
-    supabase.storage.from_(BUCKET_NAME).remove(path)
+    supabase.storage.from_(BUCKET_NAME).remove([path])
     return True
