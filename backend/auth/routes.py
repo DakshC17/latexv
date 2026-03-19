@@ -63,7 +63,10 @@ async def login(data: UserLogin, response: Response):
 
 
 @router.post("/logout")
-async def logout(response: Response):
+async def logout(request: Request, response: Response):
+    session_id = request.cookies.get("session_id")
+    if session_id:
+        session_manager.delete_session(session_id)
     response.delete_cookie(key="session_id")
     return {"message": "Logged out"}
 

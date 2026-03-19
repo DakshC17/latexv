@@ -9,18 +9,12 @@ def is_rate_limited(
 ) -> bool:
     redis = get_redis()
     key = f"ratelimit:{identifier}"
-    current = redis.get(key)
+    count = redis.incr(key)
 
-    if current is None:
-        redis.setex(key, window, "1")
-        return False
+    if count == 1:
+        redis.expire(key, window)
 
-    count = int(current)
-    if count >= limit:
-        return True
-
-    redis.incr(key)
-    return False
+    return count > limit
 
 
 def get_remaining_requests(identifier: str, limit: int = DEFAULT_LIMIT) -> int:
