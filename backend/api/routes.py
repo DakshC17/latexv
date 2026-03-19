@@ -1,3 +1,4 @@
+import asyncio
 import json
 import uuid
 from fastapi import APIRouter, HTTPException, Request
@@ -223,40 +224,163 @@ async def get_version(request: Request, doc_id: str, version_id: str):
 
 async def agent_stream(prompt: str, user_id: str):
     doc_id = str(uuid.uuid4())
+    from graph.nodes import _llm, _GENERATE_SYSTEM, _FIX_SYSTEM, _clean
+    from langchain_core.messages import HumanMessage, SystemMessage
+    from tools.latex_tools import compile_latex_tool
+
     initial_state = get_initial_state(prompt)
+    latex = ""
+    retries = 0
+    max_retries = 3
 
-    final_result = None
+    try:
+        # Planning phase
+        state = {
+            **initial_state,
+            "latex": "",
+            "status": "planning",
+            "error": "",
+            "pdf_path": "",
+            "retries": 0,
+            "message": "Analyzing request and planning document structure...",
+        }
+        yield f"data: {json.dumps(state)}\n\n"
 
-    async for event in latex_agent.astream_events(initial_state, version="v2"):
-        event_type = event.get("event", "")
-        if event_type == "on_chain_stream":
-            node_name = event.get("name", "unknown")
-            data = event.get("data", {})
-            if "output" in data:
-                output = data["output"]
-                if isinstance(output, dict):
-                    final_result = output
-                yield f"data: {json.dumps(output)}\n\n"
-        elif event_type == "on_chain_end":
-            final_state = event.get("data", {}).get("output", {})
-            final_result = final_state
+        # Generate LaTeX
+        messages = [
+            SystemMessage(content=_GENERATE_SYSTEM),
+            HumanMessage(content=f"Create a LaTeX document for: {prompt}"),
+        ]
 
-    if (
-        final_result
-        and final_result.get("status") == "done"
-        and final_result.get("pdf_path")
-    ):
-        try:
-            pdf_url = upload_pdf(
-                local_path=final_result["pdf_path"],
-                user_id=user_id,
-                doc_id=doc_id,
-            )
-            final_result["pdf_url"] = pdf_url
-            yield f"data: {json.dumps(final_result)}\n\n"
-        except Exception as e:
-            final_result["upload_error"] = str(e)
-            yield f"data: {json.dumps(final_result)}\n\n"
+        async for chunk in _llm.astream(messages):
+            if hasattr(chunk, "content") and chunk.content:
+                content_val = chunk.content
+                chunk_text = ""
+                if isinstance(content_val, list):
+                    for item in content_val:
+                        if isinstance(item, str):
+                            chunk_text += item
+                        elif isinstance(item, dict) and "text" in item:
+                            chunk_text += str(item["text"])
+                        else:
+                            chunk_text += str(item)
+                else:
+                    chunk_text = str(content_val)
+
+                latex = latex + chunk_text
+                state = {
+                    **initial_state,
+                    "latex": latex,
+                    "status": "generating",
+                    "error": "",
+                    "pdf_path": "",
+                    "retries": retries,
+                    "message": "Generating LaTeX code...",
+                }
+                yield f"data: {json.dumps(state)}\n\n"
+
+        final_latex = _clean(latex)
+
+        # Compile with self-correction loop
+        while retries <= max_retries:
+            state = {
+                **initial_state,
+                "latex": final_latex,
+                "status": "compiling",
+                "error": "",
+                "pdf_path": "",
+                "retries": retries,
+                "message": f"Compiling PDF (attempt {retries + 1}/{max_retries + 1})..."
+                if retries > 0
+                else "Compiling PDF...",
+            }
+            yield f"data: {json.dumps(state)}\n\n"
+
+            result = compile_latex_tool.invoke({"latex": final_latex})
+
+            if result["success"]:
+                pdf_path = result["pdf_path"]
+                try:
+                    pdf_url = upload_pdf(
+                        local_path=pdf_path,
+                        user_id=user_id,
+                        doc_id=doc_id,
+                    )
+                    final_state = {
+                        **state,
+                        "pdf_path": pdf_path,
+                        "pdf_url": pdf_url,
+                        "status": "done",
+                        "message": "Document compiled successfully!",
+                    }
+                except Exception as e:
+                    final_state = {
+                        **state,
+                        "pdf_path": pdf_path,
+                        "upload_error": str(e),
+                        "status": "done",
+                        "message": "Document compiled (upload warning)",
+                    }
+                yield f"data: {json.dumps(final_state)}\n\n"
+                return
+
+            # Compilation failed - auto-fix
+            error_msg = result.get("error", "Unknown error")
+            retries += 1
+
+            if retries > max_retries:
+                error_state = {
+                    **state,
+                    "error": f"Failed after {max_retries} attempts. Last error: {error_msg}",
+                    "status": "failed",
+                    "message": f"Failed after {max_retries} auto-correction attempts",
+                }
+                yield f"data: {json.dumps(error_state)}\n\n"
+                return
+
+            # Fix the LaTeX
+            state["status"] = "fixing"
+            state["message"] = f"Self-correcting (attempt {retries}/{max_retries})..."
+            yield f"data: {json.dumps(state)}\n\n"
+
+            fix_messages = [
+                SystemMessage(content=_FIX_SYSTEM),
+                HumanMessage(content=f"LaTeX:\n{final_latex}\n\nError:\n{error_msg}"),
+            ]
+
+            fixed_latex = ""
+            async for chunk in _llm.astream(fix_messages):
+                if hasattr(chunk, "content") and chunk.content:
+                    content_val = chunk.content
+                    chunk_text = ""
+                    if isinstance(content_val, list):
+                        for item in content_val:
+                            if isinstance(item, str):
+                                chunk_text += item
+                            elif isinstance(item, dict) and "text" in item:
+                                chunk_text += str(item["text"])
+                            else:
+                                chunk_text += str(item)
+                    else:
+                        chunk_text = str(content_val)
+
+                    fixed_latex += chunk_text
+                    state = {
+                        **state,
+                        "latex": fixed_latex,
+                        "retries": retries,
+                        "message": f"Fixing error and regenerating (attempt {retries}/{max_retries})...",
+                    }
+                    yield f"data: {json.dumps(state)}\n\n"
+
+    except Exception as e:
+        error_state = {
+            **initial_state,
+            "error": str(e),
+            "status": "failed",
+            "message": "Generation failed",
+        }
+        yield f"data: {json.dumps(error_state)}\n\n"
 
 
 @router.post("/v2/agent/stream")
