@@ -59,6 +59,14 @@ export const api = {
       const res = await fetchWithCookies(`/documents/${id}`, { method: "DELETE" });
       return res.json();
     },
+    getVersions: async (docId: string) => {
+      const res = await fetchWithCookies(`/documents/${docId}/versions`);
+      return res.json();
+    },
+    getVersion: async (docId: string, versionId: string) => {
+      const res = await fetchWithCookies(`/documents/${docId}/versions/${versionId}`);
+      return res.json();
+    },
   },
 
   agent: {
@@ -106,6 +114,19 @@ export const api = {
       }
       return null;
     },
+
+    submitAsync: async (prompt: string) => {
+      const res = await fetchWithCookies("/v2/agent/async", {
+        method: "POST",
+        body: JSON.stringify({ prompt }),
+      });
+      return res.json();
+    },
+
+    getStatus: async (jobId: string) => {
+      const res = await fetchWithCookies(`/status/${jobId}`);
+      return res.json();
+    },
   },
 };
 
@@ -117,4 +138,16 @@ export interface AgentEvent {
   pdf_url?: string;
   retries?: number;
   raw?: string;
+  version_id?: string;
+  version_number?: number;
+}
+
+export interface JobStatus {
+  job_id: string;
+  status: string;
+  pdf_url?: string;
+  latex?: string;
+  error?: string;
+  attempts?: number;
+  meta?: { step: string };
 }
