@@ -65,6 +65,7 @@ dependencies = [
     { name = "pyjwt" },
     { name = "python-dotenv" },
     { name = "python-multipart" },
+    { name = "redis" },
     { name = "supabase" },
     { name = "upstash-redis" },
     { name = "uvicorn" },
@@ -84,6 +85,7 @@ requires-dist = [
     { name = "pyjwt", specifier = ">=2.12.1" },
     { name = "python-dotenv", specifier = ">=1.2.2" },
     { name = "python-multipart", specifier = ">=0.0.22" },
+    { name = "redis", specifier = ">=7.3.0" },
     { name = "supabase", specifier = ">=2.28.2" },
     { name = "upstash-redis", specifier = ">=1.7.0" },
     { name = "uvicorn", specifier = ">=0.41.0" },
@@ -1546,6 +1548,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/db/c6/162d42e7c3a871ca9d441cc994e4c5c0f6dcc0c1f815fa50a4e387d0413d/realtime-2.28.2.tar.gz", hash = "sha256:b39cfd4b748a3a4dd20a3ad59a3e59ff0b77c72f03c24ea3b2f2ad50eb270dac", size = 18722, upload-time = "2026-03-13T18:42:32.378Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/91/11/7fe19cbf6a04588d6f4116736a1531c91f9e3d3ed13cfa4cad4e3727a938/realtime-2.28.2-py3-none-any.whl", hash = "sha256:f1c2512abc973681fec8575aa164e327221174fa8f49991891362527c93fd782", size = 22379, upload-time = "2026-03-13T18:42:31.145Z" },
+]
+
+[[package]]
+name = "redis"
+version = "7.3.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/da/82/4d1a5279f6c1251d3d2a603a798a1137c657de9b12cfc1fba4858232c4d2/redis-7.3.0.tar.gz", hash = "sha256:4d1b768aafcf41b01022410b3cc4f15a07d9b3d6fe0c66fc967da2c88e551034", size = 4928081, upload-time = "2026-03-06T18:18:16.287Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f0/28/84e57fce7819e81ec5aa1bd31c42b89607241f4fb1a3ea5b0d2dbeaea26c/redis-7.3.0-py3-none-any.whl", hash = "sha256:9d4fcb002a12a5e3c3fbe005d59c48a2cc231f87fbb2f6b70c2d89bb64fec364", size = 404379, upload-time = "2026-03-06T18:18:14.583Z" },
 ]
 
 [[package]]

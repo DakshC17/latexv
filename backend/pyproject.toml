@@ -17,6 +17,7 @@ dependencies = [
     "pyjwt>=2.12.1",
     "python-dotenv>=1.2.2",
     "python-multipart>=0.0.22",
+    "redis>=7.3.0",
     "supabase>=2.28.2",
     "upstash-redis>=1.7.0",
     "uvicorn>=0.41.0",
