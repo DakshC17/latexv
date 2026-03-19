@@ -2,7 +2,7 @@ import secrets
 from datetime import datetime, timezone
 from typing import Optional
 
-from redis.client import get_redis
+from cache_redis.client import get_redis
 
 SESSION_TTL_SECONDS = 86400
 

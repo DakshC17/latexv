@@ -1,5 +1,5 @@
 import hashlib
-from redis.client import get_redis
+from cache_redis.client import get_redis
 
 CACHE_TTL_SECONDS = 3600
 

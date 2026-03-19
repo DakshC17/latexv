@@ -1,4 +1,4 @@
-from redis.client import get_redis
+from cache_redis.client import get_redis
 
 DEFAULT_LIMIT = 60
 DEFAULT_WINDOW = 60

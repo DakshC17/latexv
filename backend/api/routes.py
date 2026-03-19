@@ -11,8 +11,8 @@ from db import queries as db_queries
 from db import versions as version_queries
 from models.compile_models import CompileRequest
 from models.generate_models import GenerateRequest, GenerateResponse
-from redis import cache as redis_cache
-from redis import rate_limiter as redis_rate
+from cache_redis import cache as redis_cache
+from cache_redis import rate_limiter as redis_rate
 from services.storage import upload_pdf
 from tasks.compile import compile_document_task
 from tools.compiler import LatexCompilationError, compile_latex
