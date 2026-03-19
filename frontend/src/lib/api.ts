@@ -84,6 +84,7 @@ export const api = {
 
       const decoder = new TextDecoder();
       let buffer = "";
+      let lastEvent: AgentEvent | null = null;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -97,6 +98,7 @@ export const api = {
           if (line.startsWith("data: ")) {
             try {
               const data = JSON.parse(line.slice(6));
+              lastEvent = data;
               onChunk(data);
             } catch {
               onChunk({ status: "raw", raw: line.slice(6) });
@@ -107,12 +109,14 @@ export const api = {
 
       if (buffer.startsWith("data: ")) {
         try {
-          return JSON.parse(buffer.slice(6));
+          const data = JSON.parse(buffer.slice(6));
+          lastEvent = data;
+          return data;
         } catch {
-          return null;
+          return lastEvent;
         }
       }
-      return null;
+      return lastEvent;
     },
 
     submitAsync: async (prompt: string) => {
