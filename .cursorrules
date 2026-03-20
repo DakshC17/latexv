@@ -1,0 +1,437 @@
+# LatexV Cursor Agent Rules
+
+## Project Context
+You are working on **LatexV**, an AI-powered LaTeX document generation platform. This is a production-grade web application with:
+- **Backend**: FastAPI (Python 3.11+) with LangGraph AI orchestration
+- **Frontend**: Next.js 14 (TypeScript) with App Router
+- **Infrastructure**: Supabase PostgreSQL, Upstash Redis, Gemini LLM
+- **Core Feature**: Natural language → LaTeX → PDF pipeline with streaming and self-correction
+
+## Code Style & Standards
+
+### Python (Backend)
+- Follow PEP 8 strictly
+- Use type hints for all functions and classes
+- Prefer async/await for I/O operations
+- Use Pydantic for data validation
+- Keep functions under 50 lines (split if longer)
+- Use descriptive variable names (no single letters except loop indices)
+- Add docstrings for complex functions only (code should be self-documenting)
+- Avoid unnecessary comments (prefer clear code over comments)
+
+### TypeScript (Frontend)
+- Use functional components with hooks (no class components)
+- Prefer `const` over `let`, never use `var`
+- Use TypeScript strict mode
+- Define interfaces for all props and API responses
+- Keep components under 200 lines (extract sub-components)
+- Use custom hooks for reusable logic
+- Avoid inline styles (use CSS modules or global styles)
+
+### General Principles
+- **No emojis in code, comments, or error messages** (professional tone)
+- **No placeholder values** - use real implementations or raise NotImplementedError
+- **No TODO comments** - either implement or create a GitHub issue
+- **DRY principle** - extract repeated code into utilities
+- **Single Responsibility** - each function/component does one thing well
+- **Error handling** - always handle errors gracefully with user-friendly messages
+
+## Architecture Guidelines
+
+### Backend Structure
+```
+backend/
+├── agents/      # LangGraph StateGraph definitions
+├── api/         # FastAPI route handlers
+├── auth/        # Session management & auth logic
+├── cache_redis/ # Redis utilities (NOT redis/ to avoid shadowing)
+├── db/          # Database models, queries, schema
+├── graph/       # LangGraph nodes and state definitions
+├── models/      # Pydantic request/response models
+├── tools/       # LaTeX compiler, utilities
+├── main.py      # FastAPI app with middleware setup
+└── config.py    # Environment configuration
+```
+
+### Frontend Structure
+```
+frontend/src/
+├── app/
+│   ├── app/        # Protected routes (requires auth)
+│   ├── login/      # Login page
+│   ├── register/   # Registration page
+│   └── page.tsx    # Landing page
+├── components/     # Reusable React components
+└── lib/            # API client, utilities
+```
+
+## Critical Implementation Details
+
+### Middleware Order (CRITICAL)
+```python
+# In main.py - ORDER MATTERS
+app.add_middleware(CORSMiddleware)  # FIRST - handles preflight
+app.add_middleware(RateLimitMiddleware)  # SECOND
+app.add_middleware(AuthMiddleware)  # LAST - validates sessions
+```
+**Why**: AuthMiddleware returns 401 before CORS can add headers if ordered wrong
+
+### Redis Module Naming (CRITICAL)
+- **Never** create a directory named `redis/` in backend
+- Use `cache_redis/` to avoid shadowing the PyPI `redis` package
+- Import as: `from cache_redis.client import get_redis_client`
+
+### Celery Broker URL Format (CRITICAL)
+```python
+# CORRECT - Redis wire protocol
+CELERY_BROKER_URL = "rediss://default:pass@host.upstash.io:6379"
+
+# WRONG - REST API URL
+CELERY_BROKER_URL = "https://host.upstash.io"  # This will fail
+```
+
+### Rate Limiting Pattern (CRITICAL)
+```python
+# CORRECT - Atomic increment
+count = redis_client.incr(key)
+if count == 1:
+    redis_client.expire(key, window_seconds)
+
+# WRONG - Race condition
+redis_client.setex(key, window_seconds, 1)  # First request always succeeds
+```
+
+### Streaming SSE Pattern
+```python
+# Backend: Use LLM.astream() directly, not LangGraph astream_events
+async def generate_stream():
+    async for chunk in llm.astream(prompt):
+        yield f"data: {json.dumps({'content': chunk.content})}\n\n"
+
+# Frontend: Track last event to avoid returning null
+let lastEvent = null;
+for await (const event of streamGenerate(prompt)) {
+    lastEvent = event;
+    // Update UI
+}
+return lastEvent;
+```
+
+## Database Schema Conventions
+
+### Foreign Key References
+- Use custom `users` table, NOT Supabase `auth.users`
+- All user_id columns reference `public.users(id)`
+- Example: `conversations.user_id → users.id`
+
+### Conversation Management
+- Auto-create conversation on first message in new chat
+- Update `updated_at` timestamp on each message
+- conversation_id sent in SSE stream for frontend tracking
+- Last 5 messages included in `conversation_history` for context
+
+### Document Storage
+- LaTeX code stored in `documents.latex_code`
+- PDF uploaded to Supabase Storage (bucket: `pdfs`)
+- PDF URL stored in `documents.pdf_url`
+- Versions tracked in `document_versions` table
+
+## LLM Integration Guidelines
+
+### System Prompt Design
+- **Restrict to guaranteed LaTeX packages only** (no fontawesome, moderncv, etc.)
+- Use simple document classes: article, report, book
+- Avoid special characters that cause \unskip errors
+- Max 2 levels of nested lists (avoid deep nesting)
+- Prioritize compilation success over fancy formatting
+
+### Error Handling
+- Max 3 retry attempts for compilation errors
+- Include LaTeX error log in retry context
+- Simplify on each retry (remove packages, reduce complexity)
+- Final fallback: extremely minimal document
+
+### Streaming Implementation
+```python
+# Use direct LLM streaming (not LangGraph)
+async for chunk in llm.astream(messages):
+    content = chunk.content if hasattr(chunk, 'content') else str(chunk)
+    yield {
+        "phase": "generating",
+        "content": content,
+        "conversation_id": conversation_id
+    }
+```
+
+## API Endpoint Patterns
+
+### Protected Endpoints
+```python
+@router.post("/generate")
+async def generate(
+    request: GenerateRequest,
+    user: dict = Depends(get_current_user)  # Always require auth
+):
+    user_id = user["user_id"]
+    # Implementation
+```
+
+### SSE Endpoints
+```python
+@router.post("/generate")
+async def generate_stream(request: GenerateRequest, user: dict = Depends(get_current_user)):
+    return StreamingResponse(
+        stream_generator(request, user),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"  # Disable nginx buffering
+        }
+    )
+```
+
+## Frontend Patterns
+
+### API Client Structure
+```typescript
+// lib/api.ts
+export async function* streamGenerate(prompt: string, conversationId?: string) {
+    const response = await fetch(`${API_URL}/generate`, {
+        method: 'POST',
+        credentials: 'include',  // Include cookies
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt, conversation_id: conversationId })
+    });
+    
+    const reader = response.body!.getReader();
+    const decoder = new TextDecoder();
+    
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        
+        const chunk = decoder.decode(value);
+        const lines = chunk.split('\n');
+        
+        for (const line of lines) {
+            if (line.startsWith('data: ')) {
+                yield JSON.parse(line.slice(6));
+            }
+        }
+    }
+}
+```
+
+### State Management
+- Use React hooks for local state (useState, useEffect)
+- No global state library needed (keep it simple)
+- Store conversation_id in component state
+- Track current phase (idle, generating, compiling, error)
+
+### Error Handling
+```typescript
+try {
+    for await (const event of streamGenerate(prompt)) {
+        if (event.phase === 'error') {
+            setError(event.content);
+            break;
+        }
+        // Handle other phases
+    }
+} catch (error) {
+    setError('Connection lost. Please try again.');
+}
+```
+
+## Testing Guidelines
+
+### Backend Testing (when implemented)
+- Use pytest with pytest-asyncio
+- Mock external services (Gemini, Supabase, Redis)
+- Test error paths explicitly
+- Test rate limiting edge cases
+- Test middleware order
+
+### Frontend Testing (when implemented)
+- Use Jest + React Testing Library
+- Test user interactions, not implementation
+- Mock API calls
+- Test error states
+- Test streaming updates
+
+## Common Pitfalls to Avoid
+
+1. **Module Shadowing**: Never name local directories after PyPI packages
+2. **CORS Issues**: Always put CORSMiddleware first in middleware stack
+3. **Rate Limit Bypass**: Use INCR+EXPIRE, not SETEX
+4. **Logout Incomplete**: Delete both cookie AND Redis session
+5. **Wrong Redis URL**: Use `rediss://` for Celery, not `https://`
+6. **Foreign Key Errors**: Reference `users` table, not `auth.users`
+7. **Streaming Returns Null**: Track last event properly
+8. **LaTeX Package Errors**: Stick to guaranteed packages only
+9. **API Key Exhaustion**: Monitor Gemini quota, reload env on key change
+10. **Session Leaks**: Set TTL on all Redis keys
+
+## Performance Optimization
+
+### Backend
+- Use async/await for all I/O operations
+- Implement connection pooling for database
+- Cache frequently accessed data in Redis
+- Use Celery for CPU-intensive tasks (compilation)
+- Stream large responses (don't buffer in memory)
+
+### Frontend
+- Use Next.js Static Generation for landing page
+- Lazy load editor components
+- Debounce manual compile triggers
+- Cache PDF blobs locally
+- Use CSS containment for split-pane layout
+
+## Security Best Practices
+
+- Never log sensitive data (passwords, API keys, session tokens)
+- Use HTTP-only cookies for session tokens
+- Validate all user input with Pydantic
+- Use parameterized SQL queries (Supabase handles this)
+- Sanitize LaTeX input (prevent command injection)
+- Set CORS to specific origins in production
+- Rate limit per user + IP in production
+- Use Supabase RLS policies in production
+
+## Debugging Tips
+
+### Backend Issues
+```bash
+# Check Redis connection
+redis-cli -u $UPSTASH_REDIS_REST_URL ping
+
+# Test LaTeX compilation
+echo '\documentclass{article}\begin{document}Hello\end{document}' | pdflatex
+
+# Check Celery workers
+celery -A tasks worker --loglevel=info
+
+# Test API endpoint
+curl -X POST http://localhost:8000/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"test@example.com","password":"test123"}'
+```
+
+### Frontend Issues
+```bash
+# Check API connectivity
+curl http://localhost:8000/health
+
+# Clear browser storage
+localStorage.clear(); sessionStorage.clear();
+
+# Check SSE connection
+curl -N http://localhost:8000/generate \
+  -H "Content-Type: application/json" \
+  -d '{"prompt":"test"}'
+```
+
+## Documentation Standards
+
+- Update README.md for architectural changes
+- Update backend/README.md for new API endpoints
+- Update frontend/README.md for new components
+- Include examples in docstrings for complex functions
+- Keep documentation in sync with code (no outdated docs)
+
+## Git Commit Conventions
+
+```
+feat: add conversation export functionality
+fix: resolve CORS preflight issue in auth middleware
+refactor: extract LaTeX compilation to separate service
+docs: update API documentation for streaming endpoints
+perf: optimize PDF generation with caching
+test: add unit tests for rate limiter
+chore: update dependencies
+```
+
+## Environment-Specific Behavior
+
+### Development
+- Verbose logging enabled
+- CORS allows localhost
+- Rate limiting relaxed (60 req/min)
+- Hot reload enabled
+- Detailed error messages
+
+### Production
+- Minimal logging (errors only)
+- CORS restricted to frontend domain
+- Strict rate limiting (per user + IP)
+- Error messages sanitized
+- HTTPS enforced
+- Session TTL: 24 hours
+
+## Quick Reference Commands
+
+```bash
+# Backend
+cd backend
+uv sync                           # Install dependencies
+uv run uvicorn main:app --reload # Start dev server
+uv run pytest                     # Run tests (when available)
+uv run black .                    # Format code
+uv run ruff check .               # Lint code
+
+# Frontend
+cd frontend
+npm install                       # Install dependencies
+npm run dev                       # Start dev server
+npm run build                     # Production build
+npm run lint                      # Lint code
+npm test                          # Run tests (when available)
+
+# Database
+# Run SQL in Supabase dashboard SQL editor
+
+# Redis
+redis-cli -u $UPSTASH_REDIS_REST_URL
+```
+
+## Agent-Specific Instructions
+
+When asked to implement features:
+1. **Read existing code first** - understand current patterns
+2. **Follow established conventions** - don't introduce new patterns
+3. **Test locally** - verify before committing
+4. **Update documentation** - keep docs in sync
+5. **Consider edge cases** - handle errors gracefully
+6. **Profile-driven optimization** - measure before optimizing
+7. **Security first** - validate inputs, sanitize outputs
+8. **User experience matters** - clear error messages, loading states
+
+When debugging:
+1. **Reproduce the issue** - understand the problem fully
+2. **Check logs** - backend logs, browser console, network tab
+3. **Isolate the cause** - use minimal reproduction
+4. **Fix root cause** - not symptoms
+5. **Add tests** - prevent regression
+6. **Document the fix** - update troubleshooting section if novel
+
+When refactoring:
+1. **Have a clear goal** - performance, readability, maintainability
+2. **Keep tests passing** - refactor incrementally
+3. **Preserve behavior** - no functional changes during refactoring
+4. **Update documentation** - reflect new structure
+5. **Review thoroughly** - ensure no regressions
+
+## Product Philosophy
+
+- **Professional grade** - no emojis, no cutesy language
+- **User first** - clear feedback, helpful errors
+- **Performance matters** - fast streaming, instant compilation
+- **Reliability over features** - stable core before new features
+- **Simple over complex** - avoid over-engineering
+- **Context aware** - remember conversation history
+- **Forgiving** - auto-fix errors, multiple retries
+- **Transparent** - show agent progress, explain failures
+
+This is a **production application**, not a personal project. Every line of code should reflect professional quality standards.
