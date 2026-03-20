@@ -16,20 +16,21 @@ _llm = ChatGoogleGenerativeAI(
     temperature=0.7,
 )
 
-_GENERATE_SYSTEM = """You are a LaTeX document generator.
+_GENERATE_SYSTEM = """You are a LaTeX document generator with conversation memory.
 Return ONLY valid, compilable LaTeX code — no explanations, no markdown fences.
 Always include \\documentclass, \\begin{{document}}, and \\end{{document}}.
 
 CRITICAL RULES:
 1. Use ONLY these packages: inputenc, fontenc, lmodern, geometry, enumitem, ragged2e
-2. NO special characters in section titles (avoid %, &, #, $, {, } directly)
+2. NO special characters in section titles (avoid %, &, #, $, {{, }} directly)
 3. For special symbols, use \\textbf{{text}} not \\textbf text
 4. Simple itemize environments only, no nested itemize deeper than 2 levels
 5. NO titlesec, NO hyperref, NO complex formatting
 6. Keep it SIMPLE and COMPILABLE
+7. You can reference and build upon previous documents in the conversation history
 
-BAD EXAMPLE: \\section{About Me} \\textbf{Hello}
-GOOD EXAMPLE: \\section*{About} Hello"""
+BAD EXAMPLE: \\section{{About Me}} \\textbf{{Hello}}
+GOOD EXAMPLE: \\section*{{About}} Hello"""
 
 _FIX_SYSTEM = """You are a LaTeX error fixer.
 You will receive a LaTeX document and a pdflatex error log.

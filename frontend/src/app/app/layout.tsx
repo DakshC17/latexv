@@ -13,11 +13,17 @@ function Navbar() {
     router.push("/login");
   };
 
+  const getInitials = (email: string | undefined) => {
+    if (!email) return "U";
+    const name = email.split("@")[0];
+    return name[0].toUpperCase();
+  };
+
   return (
     <header
       style={{
         display: "flex",
-        justifyContent: "space-between",
+        justifyContent: "flex-end",
         alignItems: "center",
         padding: "16px 32px",
         borderBottom: "1px solid var(--border-subtle)",
@@ -27,52 +33,33 @@ function Navbar() {
         zIndex: 100,
       }}
     >
-      <Link href="/app" style={{ textDecoration: "none", display: "flex", alignItems: "center", gap: "10px" }}>
+      <Link href="/app" style={{ textDecoration: "none", display: "flex", alignItems: "center", gap: "10px", marginRight: "auto", paddingLeft: "40px" }}>
         <svg width="26" height="26" viewBox="0 0 28 28" fill="none">
           <rect width="28" height="28" rx="6" fill="var(--accent)" />
           <text x="50%" y="54%" dominantBaseline="middle" textAnchor="middle" fontSize="13" fill="#0c0c0e" fontFamily="JetBrains Mono, monospace" fontWeight="700">LV</text>
         </svg>
-        <span style={{ fontSize: "16px", fontWeight: "600", color: "var(--text-primary)" }}>LatexVV</span>
+        <span style={{ fontSize: "16px", fontWeight: "600", color: "var(--text-primary)" }}>LatexV</span>
       </Link>
 
-      <nav style={{ display: "flex", alignItems: "center", gap: "24px" }}>
-        <Link href="/app" style={{ fontSize: "14px", color: "var(--text-secondary)", textDecoration: "none", fontWeight: "500" }}>Editor</Link>
-        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-          <div
-            style={{
-              width: "32px",
-              height: "32px",
-              borderRadius: "50%",
-              background: "var(--accent-dim)",
-              border: "1px solid var(--accent)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: "13px",
-              fontWeight: "600",
-              color: "var(--accent)",
-            }}
-          >
-            {user?.email?.[0]?.toUpperCase() || "U"}
-          </div>
-          <span style={{ fontSize: "13px", color: "var(--text-secondary)", maxWidth: "150px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {user?.email}
-          </span>
-          <button
-            onClick={handleLogout}
-            style={{
-              padding: "6px 14px",
-              borderRadius: "6px",
-              border: "1px solid var(--border)",
-              background: "transparent",
-              color: "var(--text-secondary)",
-              fontSize: "13px",
-              fontWeight: "500",
-              cursor: "pointer",
-            }}
-          >
-            Sign out
-          </button>
+      <nav style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+        <div
+          style={{
+            width: "36px",
+            height: "36px",
+            borderRadius: "50%",
+            background: "var(--accent-dim)",
+            border: "1px solid var(--accent)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: "14px",
+            fontWeight: "600",
+            color: "var(--accent)",
+            cursor: "default",
+          }}
+          title={user?.email}
+        >
+          {getInitials(user?.email)}
         </div>
       </nav>
     </header>
