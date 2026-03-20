@@ -50,7 +50,7 @@ export default function LoginPage() {
               <rect width="28" height="28" rx="6" fill="var(--accent)" />
               <text x="50%" y="54%" dominantBaseline="middle" textAnchor="middle" fontSize="13" fill="#0c0c0e" fontFamily="JetBrains Mono, monospace" fontWeight="700">LV</text>
             </svg>
-            <span style={{ fontSize: "20px", fontWeight: "600", color: "var(--text-primary)" }}>LatexVV</span>
+            <span style={{ fontSize: "20px", fontWeight: "600", color: "var(--text-primary)" }}>LatexV</span>
           </Link>
         </div>
 

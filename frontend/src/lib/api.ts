@@ -69,14 +69,30 @@ export const api = {
     },
   },
 
+  conversations: {
+    list: async () => {
+      const res = await fetchWithCookies("/conversations");
+      return res.json();
+    },
+    get: async (id: string) => {
+      const res = await fetchWithCookies(`/conversations/${id}`);
+      return res.json();
+    },
+    delete: async (id: string) => {
+      const res = await fetchWithCookies(`/conversations/${id}`, { method: "DELETE" });
+      return res.json();
+    },
+  },
+
   agent: {
     stream: async (
       prompt: string,
-      onChunk: (data: AgentEvent) => void
+      onChunk: (data: AgentEvent) => void,
+      conversationHistory: Array<{role: string; content: string}> = []
     ): Promise<AgentEvent | null> => {
       const res = await fetchWithCookies("/v2/agent/stream", {
         method: "POST",
-        body: JSON.stringify({ prompt }),
+        body: JSON.stringify({ prompt, conversation_history: conversationHistory }),
       });
 
       const reader = res.body?.getReader();
@@ -144,6 +160,7 @@ export interface AgentEvent {
   raw?: string;
   version_id?: string;
   version_number?: number;
+  conversation_id?: string;
 }
 
 export interface JobStatus {

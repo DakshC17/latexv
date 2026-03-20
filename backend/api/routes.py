@@ -7,7 +7,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 
 from agents.generator import generate_document
 from agents.latex_agent import latex_agent, get_initial_state
-from db.models import Document, DocumentCreate, DocumentUpdate
+from db.models import Document, DocumentCreate, DocumentUpdate, ConversationCreate
 from db import queries as db_queries
 from db import versions as version_queries
 from models.compile_models import CompileRequest
@@ -222,7 +222,7 @@ async def get_version(request: Request, doc_id: str, version_id: str):
     return version
 
 
-async def agent_stream(prompt: str, user_id: str):
+async def agent_stream(prompt: str, user_id: str, conversation_history: list = []):
     doc_id = str(uuid.uuid4())
     from graph.nodes import _llm, _GENERATE_SYSTEM, _FIX_SYSTEM, _clean
     from langchain_core.messages import HumanMessage, SystemMessage
@@ -232,9 +232,16 @@ async def agent_stream(prompt: str, user_id: str):
     latex = ""
     retries = 0
     max_retries = 3
+    conv_id = None
+    pdf_url = None
 
     try:
-        # Planning phase
+        conv_data = ConversationCreate(
+            user_id=user_id, prompt=prompt, status="in_progress"
+        )
+        conv = db_queries.create_conversation(conv_data)
+        conv_id = conv["id"]
+
         state = {
             **initial_state,
             "latex": "",
@@ -242,15 +249,26 @@ async def agent_stream(prompt: str, user_id: str):
             "error": "",
             "pdf_path": "",
             "retries": 0,
+            "conversation_id": conv_id,
             "message": "Analyzing request and planning document structure...",
         }
         yield f"data: {json.dumps(state)}\n\n"
 
-        # Generate LaTeX
-        messages = [
-            SystemMessage(content=_GENERATE_SYSTEM),
-            HumanMessage(content=f"Create a LaTeX document for: {prompt}"),
-        ]
+        # Build messages with conversation history
+        messages = [SystemMessage(content=_GENERATE_SYSTEM)]
+
+        # Add conversation history
+        if conversation_history:
+            history_context = "\n\nPrevious conversation:\n"
+            for msg in conversation_history[-5:]:  # Last 5 messages for context
+                role = "User" if msg.role == "user" else "Assistant"
+                history_context += f"\n{role}: {msg.content[:200]}"
+
+            prompt_with_context = f"{history_context}\n\nNew request: {prompt}"
+        else:
+            prompt_with_context = f"Create a LaTeX document for: {prompt}"
+
+        messages.append(HumanMessage(content=prompt_with_context))
 
         async for chunk in _llm.astream(messages):
             if hasattr(chunk, "content") and chunk.content:
@@ -275,6 +293,7 @@ async def agent_stream(prompt: str, user_id: str):
                     "error": "",
                     "pdf_path": "",
                     "retries": retries,
+                    "conversation_id": conv_id,
                     "message": "Generating LaTeX code...",
                 }
                 yield f"data: {json.dumps(state)}\n\n"
@@ -290,6 +309,7 @@ async def agent_stream(prompt: str, user_id: str):
                 "error": "",
                 "pdf_path": "",
                 "retries": retries,
+                "conversation_id": conv_id,
                 "message": f"Compiling PDF (attempt {retries + 1}/{max_retries + 1})..."
                 if retries > 0
                 else "Compiling PDF...",
@@ -314,6 +334,7 @@ async def agent_stream(prompt: str, user_id: str):
                         "message": "Document compiled successfully!",
                     }
                 except Exception as e:
+                    pdf_url = None
                     final_state = {
                         **state,
                         "pdf_path": pdf_path,
@@ -321,6 +342,15 @@ async def agent_stream(prompt: str, user_id: str):
                         "status": "done",
                         "message": "Document compiled (upload warning)",
                     }
+                if conv_id:
+                    db_queries.update_conversation(
+                        conv_id,
+                        {
+                            "latex": final_latex,
+                            "pdf_url": pdf_url,
+                            "status": "completed",
+                        },
+                    )
                 yield f"data: {json.dumps(final_state)}\n\n"
                 return
 
@@ -335,6 +365,10 @@ async def agent_stream(prompt: str, user_id: str):
                     "status": "failed",
                     "message": f"Failed after {max_retries} auto-correction attempts",
                 }
+                if conv_id:
+                    db_queries.update_conversation(
+                        conv_id, {"latex": final_latex, "status": "failed"}
+                    )
                 yield f"data: {json.dumps(error_state)}\n\n"
                 return
 
@@ -389,10 +423,36 @@ async def agent_stream_endpoint(request: Request, data: GenerateRequest):
     if redis_rate.is_rate_limited(client_id):
         raise HTTPException(status_code=429, detail="Rate limit exceeded")
     return StreamingResponse(
-        agent_stream(data.prompt, user_id=request.state.user_id),
+        agent_stream(
+            data.prompt,
+            user_id=request.state.user_id,
+            conversation_history=data.conversation_history or [],
+        ),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
         },
     )
+
+
+@router.get("/conversations")
+async def list_conversations(request: Request):
+    return db_queries.list_user_conversations(request.state.user_id)
+
+
+@router.get("/conversations/{conv_id}")
+async def get_conversation(conv_id: str, request: Request):
+    conv = db_queries.get_conversation(conv_id)
+    if not conv or conv["user_id"] != request.state.user_id:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return conv
+
+
+@router.delete("/conversations/{conv_id}")
+async def delete_conversation(conv_id: str, request: Request):
+    conv = db_queries.get_conversation(conv_id)
+    if not conv or conv["user_id"] != request.state.user_id:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    db_queries.delete_conversation(conv_id)
+    return {"message": "Conversation deleted"}
