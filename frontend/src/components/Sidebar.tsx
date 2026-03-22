@@ -1,5 +1,6 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
@@ -11,6 +12,7 @@ type Conversation = {
   latex: string | null;
   status: string;
   created_at: string;
+  updated_at?: string;
 };
 
 type SidebarProps = {
@@ -19,18 +21,16 @@ type SidebarProps = {
   currentConversationId: string | null;
   isOpen: boolean;
   onClose: () => void;
+  refreshTrigger?: number;
 };
 
-export default function Sidebar({ onSelectConversation, onNewChat, currentConversationId, isOpen, onClose }: SidebarProps) {
+export default function Sidebar({ onSelectConversation, onNewChat, currentConversationId, isOpen, onClose, refreshTrigger = 0 }: SidebarProps) {
   const { user, logout } = useAuth();
+  const router = useRouter();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [showSettings, setShowSettings] = useState(false);
 
-  useEffect(() => {
-    loadConversations();
-  }, []);
-
-  const loadConversations = async () => {
+  const loadConversations = useCallback(async () => {
     try {
       const data = await api.conversations.list();
       setConversations(Array.isArray(data) ? data : []);
@@ -38,7 +38,12 @@ export default function Sidebar({ onSelectConversation, onNewChat, currentConver
       console.error("Failed to load conversations:", err);
       setConversations([]);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    loadConversations();
+  }, [loadConversations, refreshTrigger]);
 
   const deleteConversation = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -56,8 +61,12 @@ export default function Sidebar({ onSelectConversation, onNewChat, currentConver
   };
 
   const handleLogout = async () => {
-    await logout();
-    window.location.href = "/";
+    onClose();
+    try {
+      await logout();
+    } finally {
+      window.location.href = "/login";
+    }
   };
 
   return (
@@ -251,7 +260,7 @@ export default function Sidebar({ onSelectConversation, onNewChat, currentConver
                       {conv.title || conv.prompt.slice(0, 50)}
                     </p>
                     <p style={{ fontSize: "11px", color: "var(--text-muted)" }}>
-                      {new Date(conv.created_at).toLocaleDateString()}
+                      {new Date(conv.updated_at || conv.created_at).toLocaleDateString()}
                     </p>
                   </div>
                   <button

@@ -9,6 +9,12 @@ async function fetchWithCookies(url: string, options: RequestInit = {}) {
       ...options.headers,
     },
   });
+  
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({ detail: "Request failed" }));
+    throw new Error(error.detail || `HTTP ${res.status}`);
+  }
+  
   return res;
 }
 
@@ -82,17 +88,26 @@ export const api = {
       const res = await fetchWithCookies(`/conversations/${id}`, { method: "DELETE" });
       return res.json();
     },
+    touch: async (id: string) => {
+      const res = await fetchWithCookies(`/conversations/${id}`, { method: "PATCH" });
+      return res.json();
+    },
   },
 
   agent: {
     stream: async (
       prompt: string,
       onChunk: (data: AgentEvent) => void,
-      conversationHistory: Array<{role: string; content: string}> = []
+      conversationHistory: Array<{role: string; content: string}> = [],
+      conversationId?: string | null
     ): Promise<AgentEvent | null> => {
       const res = await fetchWithCookies("/v2/agent/stream", {
         method: "POST",
-        body: JSON.stringify({ prompt, conversation_history: conversationHistory }),
+        body: JSON.stringify({ 
+          prompt, 
+          conversation_history: conversationHistory,
+          conversation_id: conversationId || undefined
+        }),
       });
 
       const reader = res.body?.getReader();
@@ -145,6 +160,14 @@ export const api = {
 
     getStatus: async (jobId: string) => {
       const res = await fetchWithCookies(`/status/${jobId}`);
+      return res.json();
+    },
+
+    compile: async (latex: string) => {
+      const res = await fetchWithCookies("/compile", {
+        method: "POST",
+        body: JSON.stringify({ latex }),
+      });
       return res.json();
     },
   },

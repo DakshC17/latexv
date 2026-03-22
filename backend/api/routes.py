@@ -17,8 +17,33 @@ from cache_redis import rate_limiter as redis_rate
 from services.storage import upload_pdf
 from tasks.compile import compile_document_task
 from tools.compiler import LatexCompilationError, compile_latex
+import re
 
 router = APIRouter()
+
+
+def _clean_latex(text: str) -> str:
+    """Clean LaTeX code of problematic commands"""
+    cleaned = re.sub(
+        r"^```(?:latex)?\s*|\s*```$", "", text.strip(), flags=re.MULTILINE
+    ).strip()
+
+    # Remove problematic commands
+    cleaned = re.sub(r"\\href\{[^}]+\}\{[^}]+\}", "[link]", cleaned)
+    cleaned = re.sub(r"\\url\{[^}]+\}", "[link]", cleaned)
+    cleaned = re.sub(r"\\textbullet", "•", cleaned)
+    cleaned = re.sub(r"\\justify\b", "", cleaned)
+    cleaned = re.sub(r"\\Justifying\b", "", cleaned)
+    cleaned = re.sub(r"\\centering\b", "", cleaned)
+    cleaned = re.sub(r"\\raggedright\b", "", cleaned)
+    cleaned = re.sub(r"\\raggedleft\b", "", cleaned)
+    cleaned = re.sub(r"\bJustifying\b", "", cleaned)
+
+    # Clean up formatting
+    cleaned = re.sub(r"\n\n\n+", "\n\n", cleaned)
+    cleaned = re.sub(r"[ \t]+\n", "\n", cleaned)
+
+    return cleaned.strip()
 
 
 def _get_client_id(request: Request) -> str:
@@ -47,11 +72,14 @@ async def compile_document(request: Request, data: CompileRequest):
         raise HTTPException(status_code=429, detail="Rate limit exceeded")
     try:
         pdf_path = compile_latex(data.latex)
+        pdf_url = upload_pdf(
+            local_path=pdf_path,
+            user_id=request.state.user_id,
+            doc_id=str(uuid.uuid4()),
+        )
+        return {"pdf_url": pdf_url, "success": True}
     except LatexCompilationError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return FileResponse(
-        path=pdf_path, filename="document.pdf", media_type="application/pdf"
-    )
 
 
 @router.post("/v2/agent")
@@ -222,7 +250,12 @@ async def get_version(request: Request, doc_id: str, version_id: str):
     return version
 
 
-async def agent_stream(prompt: str, user_id: str, conversation_history: list = []):
+async def agent_stream(
+    prompt: str,
+    user_id: str,
+    conversation_history: list = [],
+    conversation_id: str = None,
+):
     doc_id = str(uuid.uuid4())
     from graph.nodes import _llm, _GENERATE_SYSTEM, _FIX_SYSTEM, _clean
     from langchain_core.messages import HumanMessage, SystemMessage
@@ -232,15 +265,41 @@ async def agent_stream(prompt: str, user_id: str, conversation_history: list = [
     latex = ""
     retries = 0
     max_retries = 3
-    conv_id = None
+    conv_id = conversation_id
     pdf_url = None
 
     try:
-        conv_data = ConversationCreate(
-            user_id=user_id, prompt=prompt, status="in_progress"
-        )
-        conv = db_queries.create_conversation(conv_data)
-        conv_id = conv["id"]
+        if conv_id:
+            conv = db_queries.get_conversation(conv_id)
+            if not conv or conv["user_id"] != user_id:
+                conv_id = None
+
+        if not conv_id:
+            title_messages = [
+                SystemMessage(
+                    content="You are a title generator. Generate a short, descriptive title (2-4 words max) for this document request. Reply with ONLY the title, no explanation. Example: 'Software Engineer Resume' or 'Research Paper Abstract'"
+                ),
+                HumanMessage(content=prompt),
+            ]
+
+            try:
+                title_response = _llm.invoke(title_messages)
+                title = str(title_response.content).strip()
+                if len(title) > 40:
+                    title = title[:37] + "..."
+            except:
+                words = prompt.strip().split()[:4]
+                title = " ".join(words)
+                if len(prompt.split()) > 4:
+                    title += "..."
+
+            conv_data = ConversationCreate(
+                user_id=user_id, prompt=prompt, title=title, status="in_progress"
+            )
+            conv = db_queries.create_conversation(conv_data)
+            conv_id = conv["id"]
+        else:
+            db_queries.update_conversation(conv_id, {"status": "in_progress"})
 
         state = {
             **initial_state,
@@ -343,14 +402,13 @@ async def agent_stream(prompt: str, user_id: str, conversation_history: list = [
                         "message": "Document compiled (upload warning)",
                     }
                 if conv_id:
-                    db_queries.update_conversation(
-                        conv_id,
-                        {
-                            "latex": final_latex,
-                            "pdf_url": pdf_url,
-                            "status": "completed",
-                        },
-                    )
+                    update_data = {
+                        "latex": final_latex,
+                        "status": "completed",
+                    }
+                    if pdf_url:
+                        update_data["pdf_url"] = pdf_url
+                    db_queries.update_conversation(conv_id, update_data)
                 yield f"data: {json.dumps(final_state)}\n\n"
                 return
 
@@ -367,7 +425,8 @@ async def agent_stream(prompt: str, user_id: str, conversation_history: list = [
                 }
                 if conv_id:
                     db_queries.update_conversation(
-                        conv_id, {"latex": final_latex, "status": "failed"}
+                        conv_id,
+                        {"latex": final_latex, "status": "failed", "pdf_url": None},
                     )
                 yield f"data: {json.dumps(error_state)}\n\n"
                 return
@@ -427,6 +486,7 @@ async def agent_stream_endpoint(request: Request, data: GenerateRequest):
             data.prompt,
             user_id=request.state.user_id,
             conversation_history=data.conversation_history or [],
+            conversation_id=data.conversation_id,
         ),
         media_type="text/event-stream",
         headers={
@@ -456,3 +516,53 @@ async def delete_conversation(conv_id: str, request: Request):
         raise HTTPException(status_code=404, detail="Conversation not found")
     db_queries.delete_conversation(conv_id)
     return {"message": "Conversation deleted"}
+
+
+@router.patch("/conversations/{conv_id}")
+async def touch_conversation(conv_id: str, request: Request):
+    """Update conversation (e.g., to move to top by updating timestamp)"""
+    conv = db_queries.get_conversation(conv_id)
+    if not conv or conv["user_id"] != request.state.user_id:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    db_queries.update_conversation(conv_id, {"updated_at": "now()"})
+    return {"message": "Conversation updated"}
+
+
+from pydantic import BaseModel, EmailStr
+from typing import Optional
+
+
+class ContactRequest(BaseModel):
+    name: str
+    email: EmailStr
+    subject: str
+    message: str
+
+
+@router.post("/contact")
+async def contact_form(data: ContactRequest):
+    contact_email = "quantumbyte.co.in@gmail.com"
+
+    subject = f"[LatexV Contact] {data.subject}"
+    body = f"""
+New contact form submission from LatexV website:
+
+Name: {data.name}
+Email: {data.email}
+Subject: {data.subject}
+
+Message:
+{data.message}
+
+---
+This message was sent via the LatexV contact form.
+    """
+
+    print(f"[CONTACT FORM] New submission from {data.name} ({data.email})")
+    print(f"Subject: {data.subject}")
+    print(f"Message: {data.message[:100]}...")
+
+    return {
+        "message": "Thank you for your message. We'll get back to you within 24 hours.",
+        "recipient": contact_email,
+    }

@@ -72,7 +72,7 @@ def list_user_conversations(user_id: str) -> List[dict]:
         supabase.table(CONVERSATIONS_TABLE)
         .select("*")
         .eq("user_id", user_id)
-        .order("created_at", desc=True)
+        .order("updated_at", desc=True)
         .execute()
         .data
     )
