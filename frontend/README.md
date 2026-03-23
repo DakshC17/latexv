@@ -37,6 +37,24 @@ Public landing page with:
 - Features grid (6 features)
 - How it works section (3 steps)
 - Call to action
+- Professional footer with links
+
+### About (`/about`)
+
+Company/product information page with:
+- Problem statement
+- Solution explanation
+- Key features list
+- Target audience
+
+### Contact (`/contact`)
+
+Contact form with:
+- Name, email, subject, message fields
+- Form validation
+- Success/error states
+- Email to: quantumbyte.co.in@gmail.com
+- Alternative: direct mailto link
 
 ### Login (`/login`)
 
@@ -62,6 +80,29 @@ Main application interface featuring:
 - Floating Compile button
 - Status bar showing generation progress
 - Session history sidebar
+
+### Terms (`/terms`)
+
+Legal terms of service page with:
+- Acceptance of terms
+- Use of service guidelines
+- Account responsibility
+- Intellectual property policy
+
+### Privacy (`/privacy`)
+
+Privacy policy page with:
+- Information collection practices
+- Data storage details
+- Cookie usage
+- User rights
+- Security measures
+
+### 404 (`/not-found`)
+
+Custom 404 error page with:
+- Clean error message
+- Navigation links
 
 ## Components
 

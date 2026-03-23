@@ -96,7 +96,26 @@ export default function Home() {
     }
   }, [user, loading, router]);
 
-  if (loading) return null;
+  if (loading) {
+    return (
+      <div style={{ 
+        minHeight: "100vh", 
+        display: "flex", 
+        alignItems: "center", 
+        justifyContent: "center",
+        background: "var(--bg-base)"
+      }}>
+        <div style={{ 
+          width: "24px", 
+          height: "24px", 
+          border: "2px solid var(--border)", 
+          borderTop: "2px solid var(--accent)", 
+          borderRadius: "50%", 
+          animation: "spin 1s linear infinite" 
+        }} />
+      </div>
+    );
+  }
 
   return (
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
@@ -143,7 +162,13 @@ export default function Home() {
             LatexV
           </span>
         </div>
-        <div style={{ display: "flex", gap: "12px" }}>
+        <div style={{ display: "flex", gap: "32px", alignItems: "center" }}>
+          <Link href="/about" style={{ color: "var(--text-secondary)", fontSize: "14px", fontWeight: "500", textDecoration: "none" }}>
+            About
+          </Link>
+          <Link href="/contact" style={{ color: "var(--text-secondary)", fontSize: "14px", fontWeight: "500", textDecoration: "none" }}>
+            Contact
+          </Link>
           <Link
             href="/login"
             style={{
@@ -178,7 +203,7 @@ export default function Home() {
       </header>
 
       <main style={{ flex: 1 }}>
-        <section style={{ paddingTop: "140px", paddingBottom: "100px", textAlign: "center" }}>
+        <section className="hero-section" style={{ paddingTop: "140px", paddingBottom: "100px", textAlign: "center" }}>
           <div style={{ maxWidth: "720px", margin: "0 auto", padding: "0 24px" }}>
             <div
               style={{
@@ -268,6 +293,7 @@ export default function Home() {
           </div>
 
           <div
+            className="code-preview"
             style={{
               marginTop: "80px",
               marginLeft: "auto",
@@ -357,6 +383,7 @@ export default function Home() {
               {features.map((feature, index) => (
                 <div
                   key={index}
+                  className="feature-card"
                   style={{
                     padding: "28px",
                     borderRadius: "12px",
@@ -420,6 +447,7 @@ export default function Home() {
               {steps.map((step, index) => (
                 <div
                   key={index}
+                  className="step-card"
                   style={{
                     display: "flex",
                     gap: "32px",
@@ -517,30 +545,51 @@ export default function Home() {
 
       <footer
         style={{
-          padding: "32px 48px",
+          padding: "40px 48px",
           borderTop: "1px solid var(--border-subtle)",
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
+          background: "var(--bg-surface)",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-          <svg width="20" height="20" viewBox="0 0 28 28" fill="none">
-            <rect width="28" height="28" rx="6" fill="var(--accent)" />
-            <text
-              x="50%"
-              y="54%"
-              dominantBaseline="middle"
-              textAnchor="middle"
-              fontSize="13"
-              fill="#0c0c0e"
-              fontFamily="JetBrains Mono, monospace"
-              fontWeight="700"
-            >
-              LV
-            </text>
-          </svg>
-          <span style={{ fontSize: "14px", color: "var(--text-muted)" }}>LatexV</span>
+        <div style={{ maxWidth: "1200px", margin: "0 auto", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <svg width="20" height="20" viewBox="0 0 28 28" fill="none">
+              <rect width="28" height="28" rx="6" fill="var(--accent)" />
+              <text
+                x="50%"
+                y="54%"
+                dominantBaseline="middle"
+                textAnchor="middle"
+                fontSize="13"
+                fill="#0c0c0e"
+                fontFamily="JetBrains Mono, monospace"
+                fontWeight="700"
+              >
+                LV
+              </text>
+            </svg>
+            <span style={{ fontSize: "14px", color: "var(--text-muted)" }}>LatexV</span>
+          </div>
+          
+          <div style={{ display: "flex", gap: "32px", alignItems: "center" }}>
+            <Link href="/about" style={{ color: "var(--text-muted)", fontSize: "14px", textDecoration: "none" }}>
+              About
+            </Link>
+            <Link href="/contact" style={{ color: "var(--text-muted)", fontSize: "14px", textDecoration: "none" }}>
+              Contact
+            </Link>
+            <Link href="/login" style={{ color: "var(--text-muted)", fontSize: "14px", textDecoration: "none" }}>
+              Sign in
+            </Link>
+            <Link href="/register" style={{ color: "var(--text-muted)", fontSize: "14px", textDecoration: "none" }}>
+              Get started
+            </Link>
+          </div>
+          
+          <div style={{ display: "flex", gap: "24px", alignItems: "center", fontSize: "14px", color: "var(--text-muted)" }}>
+            <Link href="/terms" style={{ color: "var(--text-muted)", textDecoration: "none" }}>Terms</Link>
+            <Link href="/privacy" style={{ color: "var(--text-muted)", textDecoration: "none" }}>Privacy</Link>
+            <span>Built for professional documents</span>
+          </div>
         </div>
       </footer>
     </div>

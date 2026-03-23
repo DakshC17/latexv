@@ -3,6 +3,7 @@ import { useState, useRef, useEffect } from "react";
 import { api, AgentEvent } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import Sidebar from "@/components/Sidebar";
+import LatexEditor from "@/components/LatexEditor";
 
 type EditorStatus = "idle" | "planning" | "generating" | "compiling" | "fixing" | "done" | "error";
 
@@ -14,6 +15,7 @@ type Conversation = {
   pdf_url: string | null;
   status: string;
   created_at: string;
+  updated_at?: string;
 };
 
 export default function EditorPage() {
@@ -28,7 +30,48 @@ export default function EditorPage() {
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
   const [conversationHistory, setConversationHistory] = useState<Array<{role: string; content: string}>>([]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarRefresh, setSidebarRefresh] = useState(0);
   const latexRef = useRef<HTMLDivElement>(null);
+  const [isLoaded, setIsLoaded] = useState(false);
+
+  // Persist session to localStorage
+  useEffect(() => {
+    if (!user) return;
+    
+    const savedConvId = localStorage.getItem("currentConversationId");
+    const savedLatex = localStorage.getItem("currentLatex");
+    const savedPdf = localStorage.getItem("currentPdf");
+    
+    if (savedConvId) {
+      api.conversations.get(savedConvId).then((conv) => {
+        if (conv && conv.id) {
+          loadConversation(conv);
+        }
+        setIsLoaded(true);
+      }).catch(() => {
+        localStorage.removeItem("currentConversationId");
+        localStorage.removeItem("currentLatex");
+        localStorage.removeItem("currentPdf");
+        setIsLoaded(true);
+      });
+    } else {
+      setIsLoaded(true);
+    }
+  }, [user]);
+
+  // Save to localStorage when state changes
+  useEffect(() => {
+    if (!isLoaded) return;
+    if (currentConversationId) {
+      localStorage.setItem("currentConversationId", currentConversationId);
+    }
+    if (latexCode) {
+      localStorage.setItem("currentLatex", latexCode);
+    }
+    if (pdfUrl) {
+      localStorage.setItem("currentPdf", pdfUrl);
+    }
+  }, [currentConversationId, latexCode, pdfUrl, isLoaded]);
 
   useEffect(() => {
     if (latexRef.current) {
@@ -37,11 +80,30 @@ export default function EditorPage() {
   }, [latexCode, status]);
 
   const loadConversation = (conv: Conversation) => {
-    setPrompt(conv.prompt);
+    setPrompt("");
     setLatexCode(conv.latex || "");
     setPdfUrl(conv.pdf_url);
     setCurrentConversationId(conv.id);
-    setConversationHistory([]); // Reset history when loading old conversation
+    
+    localStorage.setItem("currentConversationId", conv.id);
+    if (conv.latex) localStorage.setItem("currentLatex", conv.latex);
+    if (conv.pdf_url) localStorage.setItem("currentPdf", conv.pdf_url);
+    
+    api.conversations.touch(conv.id).catch(console.error);
+    setSidebarRefresh(prev => prev + 1);
+    
+    const contextHistory = [
+      {
+        role: "user" as const,
+        content: conv.prompt
+      },
+      {
+        role: "assistant" as const,
+        content: `Here is the LaTeX document:\n\n${conv.latex || "No previous document found."}`
+      }
+    ];
+    
+    setConversationHistory(contextHistory);
     setStatus(conv.latex ? "done" : "idle");
   };
 
@@ -54,11 +116,16 @@ export default function EditorPage() {
     setStatus("idle");
     setCurrentConversationId(null);
     setConversationHistory([]);
+    localStorage.removeItem("currentConversationId");
+    localStorage.removeItem("currentLatex");
+    localStorage.removeItem("currentPdf");
   };
 
   const startGeneration = async () => {
     if (!prompt.trim() || isStreaming || status === "compiling") return;
 
+    const currentPrompt = prompt;
+    setPrompt(""); // Clear prompt immediately
     setStatus("planning");
     setIsStreaming(true);
     setLatexCode("");
@@ -70,7 +137,7 @@ export default function EditorPage() {
 
     try {
       const result = await api.agent.stream(
-        prompt, 
+        currentPrompt, 
         (data: AgentEvent) => {
           if (data.status) {
             setStatus(data.status as EditorStatus);
@@ -87,9 +154,11 @@ export default function EditorPage() {
           if (data.conversation_id) {
             receivedConversationId = data.conversation_id;
             setCurrentConversationId(data.conversation_id);
+            setSidebarRefresh(prev => prev + 1);
           }
         },
-        conversationHistory
+        conversationHistory,
+        currentConversationId
       );
       
       setIsStreaming(false);
@@ -178,6 +247,33 @@ export default function EditorPage() {
     }
   };
 
+  const manualCompile = async () => {
+    if (!latexCode.trim() || isStreaming || status === "compiling") return;
+
+    setStatus("compiling");
+    setError("");
+    setAgentMessage("Compiling...");
+
+    try {
+      const result = await api.agent.compile(latexCode);
+
+      if (result?.pdf_url) {
+        setPdfUrl(result.pdf_url);
+        setStatus("done");
+        setAgentMessage("Compiled successfully!");
+      } else {
+        setError("Compilation failed");
+        setStatus("error");
+        setAgentMessage("Compilation failed");
+      }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Compilation failed";
+      setError(errorMessage);
+      setStatus("error");
+      setAgentMessage("Compilation failed");
+    }
+  };
+
   return (
     <>
       {/* Hamburger Button - Only show when sidebar is closed */}
@@ -215,6 +311,7 @@ export default function EditorPage() {
         currentConversationId={currentConversationId}
         isOpen={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
+        refreshTrigger={sidebarRefresh}
       />
       
       <div style={{ 
@@ -225,7 +322,7 @@ export default function EditorPage() {
         position: "relative"
       }}>
         {/* Left Side - Editor */}
-        <div style={{ 
+        <div className="editor-pane" style={{ 
           flex: 1, 
           display: "flex", 
           flexDirection: "column",
@@ -303,11 +400,13 @@ export default function EditorPage() {
               flex: 1, 
               overflowY: "auto", 
               padding: "20px",
-              background: "var(--bg-base)"
+              background: "var(--bg-base)",
+              display: "flex",
+              flexDirection: "column"
             }}
           >
             {latexCode ? (
-              <div>
+              <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
                 <div style={{ 
                   display: "flex", 
                   alignItems: "center", 
@@ -336,27 +435,13 @@ export default function EditorPage() {
                     </span>
                   )}
                 </div>
-                <textarea
+                <LatexEditor
                   value={latexCode}
-                  onChange={(e) => setLatexCode(e.target.value)}
+                  onChange={setLatexCode}
                   disabled={isStreaming}
-                  placeholder="Your LaTeX code will appear here..."
                   style={{
-                    width: "100%",
-                    minHeight: "400px",
-                    fontFamily: "'JetBrains Mono', 'Fira Code', 'Courier New', monospace",
-                    fontSize: "12px",
-                    lineHeight: "1.6",
-                    color: "var(--text-primary)",
-                    background: "var(--bg-surface)",
-                    padding: "16px",
-                    borderRadius: "8px",
-                    border: "1px solid var(--border)",
-                    resize: "vertical",
-                    outline: "none",
-                    margin: 0,
-                    whiteSpace: "pre-wrap",
-                    wordBreak: "break-word"
+                    flex: 1,
+                    minHeight: "300px"
                   }}
                 />
               </div>
@@ -506,7 +591,8 @@ export default function EditorPage() {
           zIndex: 10,
         }}>
           <button
-            onClick={compileDocument}
+            className="compile-button"
+            onClick={manualCompile}
             disabled={!latexCode.trim() || status === "compiling" || isStreaming}
             style={{
               padding: "10px 28px",
@@ -526,6 +612,8 @@ export default function EditorPage() {
                 ? "none"
                 : "0 2px 12px rgba(251, 191, 36, 0.2)",
               transition: "all 0.2s ease",
+              zIndex: 10,
+              boxShadow: "0 4px 16px rgba(251, 191, 36, 0.3)",
             }}
             title="Compile to PDF"
           >
@@ -569,7 +657,7 @@ export default function EditorPage() {
           overflow: "hidden"
         }}>
           {/* PDF Preview Area */}
-          <div style={{ 
+          <div className="preview-pane" style={{ 
             flex: 1, 
             overflow: "auto",
             background: "var(--bg-base)",

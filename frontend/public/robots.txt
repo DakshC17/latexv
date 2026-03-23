@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://latexv.com/sitemap.xml
