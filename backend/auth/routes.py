@@ -73,7 +73,15 @@ async def logout(request: Request, response: Response):
 
 @router.get("/me", response_model=UserResponse)
 async def me(request: Request):
-    user = user_queries.get_user_by_id(request.state.user_id)
+    session_id = request.cookies.get("session_id")
+    if not session_id:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    user_id = session_manager.get_session(session_id)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Session expired")
+
+    user = user_queries.get_user_by_id(user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     return UserResponse(

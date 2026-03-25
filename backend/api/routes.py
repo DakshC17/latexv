@@ -1,10 +1,11 @@
 import asyncio
 import json
 import uuid
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Depends
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, StreamingResponse
 
+from auth.session import get_session
 from agents.generator import generate_document
 from agents.latex_agent import latex_agent, get_initial_state
 from db.models import Document, DocumentCreate, DocumentUpdate, ConversationCreate
@@ -20,6 +21,19 @@ from tools.compiler import LatexCompilationError, compile_latex
 import re
 
 router = APIRouter()
+
+
+def get_current_user(request: Request) -> str:
+    """Get current user ID from session cookie"""
+    session_id = request.cookies.get("session_id")
+    if not session_id:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    user_id = get_session(session_id)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Session expired")
+
+    return user_id
 
 
 def _clean_latex(text: str) -> str:
@@ -74,7 +88,7 @@ async def compile_document(request: Request, data: CompileRequest):
         pdf_path = compile_latex(data.latex)
         pdf_url = upload_pdf(
             local_path=pdf_path,
-            user_id=request.state.user_id,
+            user_id=get_current_user(request),
             doc_id=str(uuid.uuid4()),
         )
         return {"pdf_url": pdf_url, "success": True}
@@ -96,7 +110,7 @@ async def agent_generate(request: Request, data: GenerateRequest):
             doc_id = str(uuid.uuid4())
             pdf_url = upload_pdf(
                 local_path=result["pdf_path"],
-                user_id=request.state.user_id,
+                user_id=get_current_user(request),
                 doc_id=doc_id,
             )
             redis_cache.cache_latex_result(data.prompt, result["pdf_path"])
@@ -124,7 +138,7 @@ async def agent_async(request: Request, data: GenerateRequest):
 
     doc = db_queries.create_document(
         DocumentCreate(
-            user_id=request.state.user_id,
+            user_id=get_current_user(request),
             prompt=data.prompt,
             latex="",
             status="processing",
@@ -134,7 +148,7 @@ async def agent_async(request: Request, data: GenerateRequest):
     task = compile_document_task.delay(
         prompt=data.prompt,
         document_id=doc["id"],
-        user_id=request.state.user_id,
+        user_id=get_current_user(request),
     )
 
     return {
@@ -173,7 +187,7 @@ async def get_job_status(request: Request, job_id: str):
 async def create_document(request: Request, data: DocumentCreate):
     if redis_rate.is_rate_limited(_get_client_id(request)):
         raise HTTPException(status_code=429, detail="Rate limit exceeded")
-    data.user_id = request.state.user_id
+    data.user_id = get_current_user(request)
     return db_queries.create_document(data)
 
 
@@ -184,7 +198,7 @@ async def get_document(request: Request, doc_id: str):
     doc = db_queries.get_document(doc_id)
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
-    if doc.get("user_id") != request.state.user_id:
+    if doc.get("user_id") != get_current_user(request):
         raise HTTPException(status_code=403, detail="Access denied")
     return doc
 
@@ -193,7 +207,7 @@ async def get_document(request: Request, doc_id: str):
 async def list_documents(request: Request):
     if redis_rate.is_rate_limited(_get_client_id(request)):
         raise HTTPException(status_code=429, detail="Rate limit exceeded")
-    return db_queries.list_user_documents(request.state.user_id)
+    return db_queries.list_user_documents(get_current_user(request))
 
 
 @router.put("/documents/{doc_id}", response_model=Document)
@@ -203,7 +217,7 @@ async def update_document(request: Request, doc_id: str, data: DocumentUpdate):
     doc = db_queries.get_document(doc_id)
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
-    if doc.get("user_id") != request.state.user_id:
+    if doc.get("user_id") != get_current_user(request):
         raise HTTPException(status_code=403, detail="Access denied")
     return db_queries.update_document(doc_id, data)
 
@@ -215,7 +229,7 @@ async def delete_document(request: Request, doc_id: str):
     doc = db_queries.get_document(doc_id)
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
-    if doc.get("user_id") != request.state.user_id:
+    if doc.get("user_id") != get_current_user(request):
         raise HTTPException(status_code=403, detail="Access denied")
     success = db_queries.delete_document(doc_id)
     return {"deleted": True}
@@ -229,7 +243,7 @@ async def get_document_versions(request: Request, doc_id: str):
     doc = db_queries.get_document(doc_id)
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
-    if doc.get("user_id") != request.state.user_id:
+    if doc.get("user_id") != get_current_user(request):
         raise HTTPException(status_code=403, detail="Access denied")
     return version_queries.get_versions(doc_id)
 
@@ -242,7 +256,7 @@ async def get_version(request: Request, doc_id: str, version_id: str):
     doc = db_queries.get_document(doc_id)
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
-    if doc.get("user_id") != request.state.user_id:
+    if doc.get("user_id") != get_current_user(request):
         raise HTTPException(status_code=403, detail="Access denied")
     version = version_queries.get_version(version_id)
     if not version or version["document_id"] != doc_id:
@@ -484,7 +498,7 @@ async def agent_stream_endpoint(request: Request, data: GenerateRequest):
     return StreamingResponse(
         agent_stream(
             data.prompt,
-            user_id=request.state.user_id,
+            user_id=get_current_user(request),
             conversation_history=data.conversation_history or [],
             conversation_id=data.conversation_id,
         ),
@@ -498,13 +512,13 @@ async def agent_stream_endpoint(request: Request, data: GenerateRequest):
 
 @router.get("/conversations")
 async def list_conversations(request: Request):
-    return db_queries.list_user_conversations(request.state.user_id)
+    return db_queries.list_user_conversations(get_current_user(request))
 
 
 @router.get("/conversations/{conv_id}")
 async def get_conversation(conv_id: str, request: Request):
     conv = db_queries.get_conversation(conv_id)
-    if not conv or conv["user_id"] != request.state.user_id:
+    if not conv or conv["user_id"] != get_current_user(request):
         raise HTTPException(status_code=404, detail="Conversation not found")
     return conv
 
@@ -512,7 +526,7 @@ async def get_conversation(conv_id: str, request: Request):
 @router.delete("/conversations/{conv_id}")
 async def delete_conversation(conv_id: str, request: Request):
     conv = db_queries.get_conversation(conv_id)
-    if not conv or conv["user_id"] != request.state.user_id:
+    if not conv or conv["user_id"] != get_current_user(request):
         raise HTTPException(status_code=404, detail="Conversation not found")
     db_queries.delete_conversation(conv_id)
     return {"message": "Conversation deleted"}
@@ -522,7 +536,7 @@ async def delete_conversation(conv_id: str, request: Request):
 async def touch_conversation(conv_id: str, request: Request):
     """Update conversation (e.g., to move to top by updating timestamp)"""
     conv = db_queries.get_conversation(conv_id)
-    if not conv or conv["user_id"] != request.state.user_id:
+    if not conv or conv["user_id"] != get_current_user(request):
         raise HTTPException(status_code=404, detail="Conversation not found")
     db_queries.update_conversation(conv_id, {"updated_at": "now()"})
     return {"message": "Conversation updated"}
