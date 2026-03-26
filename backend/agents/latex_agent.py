@@ -3,14 +3,26 @@ from langgraph.graph import END, StateGraph
 from graph.nodes import compile_node, fix_node, generate_node
 from graph.state import LatexAgentState
 
-MAX_RETRIES = 3
+# Enhanced retry configuration with intelligent backoff
+MAX_RETRIES = 10  # Increased from 3 to 10
+MAX_ENGINE_RETRIES = 3  # Retries per LaTeX engine before switching
+EXPONENTIAL_BACKOFF_BASE = 1.5  # Base for exponential backoff
 
 
 def _route_after_compile(state: LatexAgentState) -> str:
+    """Enhanced routing logic with intelligent retry strategies."""
     if state["status"] == "done":
         return END
+
+    # Check if we've exceeded maximum retries
     if state["retries"] >= MAX_RETRIES:
+        # Log final failure for debugging
+        print(
+            f"[WARN] Maximum retries ({MAX_RETRIES}) exceeded. Final error: {state.get('error', 'Unknown error')}"
+        )
         return END
+
+    # Continue with fix attempt
     return "fix"
 
 

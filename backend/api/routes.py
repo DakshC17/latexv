@@ -45,7 +45,7 @@ def _clean_latex(text: str) -> str:
     # Remove problematic commands
     cleaned = re.sub(r"\\href\{[^}]+\}\{[^}]+\}", "[link]", cleaned)
     cleaned = re.sub(r"\\url\{[^}]+\}", "[link]", cleaned)
-    cleaned = re.sub(r"\\textbullet", "•", cleaned)
+    cleaned = re.sub(r"\\textbullet", "*", cleaned)
     cleaned = re.sub(r"\\justify\b", "", cleaned)
     cleaned = re.sub(r"\\Justifying\b", "", cleaned)
     cleaned = re.sub(r"\\centering\b", "", cleaned)

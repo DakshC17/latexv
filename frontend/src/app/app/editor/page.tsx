@@ -2,6 +2,7 @@
 import { useState, useRef, useEffect } from "react";
 import { api, AgentEvent } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { getSessionData, setSessionData, clearSessionData } from "@/lib/session-storage";
 import Sidebar from "@/components/Sidebar";
 import LatexEditor from "@/components/LatexEditor";
 
@@ -34,44 +35,47 @@ export default function EditorPage() {
   const latexRef = useRef<HTMLDivElement>(null);
   const [isLoaded, setIsLoaded] = useState(false);
 
-  // Persist session to localStorage
+  // Persist session to localStorage with proper cleanup
   useEffect(() => {
     if (!user) return;
     
-    const savedConvId = localStorage.getItem("currentConversationId");
-    const savedLatex = localStorage.getItem("currentLatex");
-    const savedPdf = localStorage.getItem("currentPdf");
+    const sessionData = getSessionData();
     
-    if (savedConvId) {
-      api.conversations.get(savedConvId).then((conv) => {
+    if (sessionData.conversationId) {
+      // Try to load the saved conversation
+      api.conversations.get(sessionData.conversationId).then((conv) => {
         if (conv && conv.id) {
+          // Conversation exists and user has access - load it
           loadConversation(conv);
         }
         setIsLoaded(true);
-      }).catch(() => {
-        localStorage.removeItem("currentConversationId");
-        localStorage.removeItem("currentLatex");
-        localStorage.removeItem("currentPdf");
+      }).catch((error) => {
+        // Conversation not found or access denied - clear session data
+        console.log("Clearing session: conversation not accessible", error);
+        clearSessionData();
         setIsLoaded(true);
       });
+    } else if (sessionData.latexCode || sessionData.pdfUrl) {
+      // Has session data but no conversation ID - this might be orphaned data
+      console.log("Clearing orphaned session data");
+      clearSessionData();
+      setIsLoaded(true);
     } else {
+      // No session data - start fresh
       setIsLoaded(true);
     }
   }, [user]);
 
   // Save to localStorage when state changes
   useEffect(() => {
-    if (!isLoaded) return;
-    if (currentConversationId) {
-      localStorage.setItem("currentConversationId", currentConversationId);
-    }
-    if (latexCode) {
-      localStorage.setItem("currentLatex", latexCode);
-    }
-    if (pdfUrl) {
-      localStorage.setItem("currentPdf", pdfUrl);
-    }
-  }, [currentConversationId, latexCode, pdfUrl, isLoaded]);
+    if (!isLoaded || !user) return;
+    
+    setSessionData({
+      conversationId: currentConversationId || undefined,
+      latexCode: latexCode || undefined,
+      pdfUrl: pdfUrl || undefined
+    });
+  }, [currentConversationId, latexCode, pdfUrl, isLoaded, user]);
 
   useEffect(() => {
     if (latexRef.current) {
@@ -85,9 +89,7 @@ export default function EditorPage() {
     setPdfUrl(conv.pdf_url);
     setCurrentConversationId(conv.id);
     
-    localStorage.setItem("currentConversationId", conv.id);
-    if (conv.latex) localStorage.setItem("currentLatex", conv.latex);
-    if (conv.pdf_url) localStorage.setItem("currentPdf", conv.pdf_url);
+    // Session data will be saved automatically by the useEffect hook
     
     api.conversations.touch(conv.id).catch(console.error);
     setSidebarRefresh(prev => prev + 1);
@@ -116,9 +118,9 @@ export default function EditorPage() {
     setStatus("idle");
     setCurrentConversationId(null);
     setConversationHistory([]);
-    localStorage.removeItem("currentConversationId");
-    localStorage.removeItem("currentLatex");
-    localStorage.removeItem("currentPdf");
+    
+    // Clear all session data
+    clearSessionData();
   };
 
   const startGeneration = async () => {

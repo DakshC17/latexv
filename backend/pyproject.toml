@@ -14,6 +14,7 @@ dependencies = [
     "langchain>=1.2.12",
     "langchain-google-genai>=4.2.1",
     "langgraph>=1.1.2",
+    "psutil>=6.0.0",
     "pydantic>=2.12.5",
     "pyjwt>=2.12.1",
     "python-dotenv>=1.2.2",
