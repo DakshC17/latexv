@@ -1,6 +1,7 @@
 "use client";
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import { api } from "./api";
+import { clearSessionData } from "./session-storage";
 
 interface User {
   id: string;
@@ -33,12 +34,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const login = async (email: string, password: string) => {
+    // Clear any existing session data before logging in
+    // This prevents previous user's data from being loaded
+    clearSessionData();
+    
     await api.auth.login(email, password);
     const u = await api.auth.me();
     setUser(u);
   };
 
   const register = async (email: string, password: string) => {
+    // Clear any existing session data before registering
+    clearSessionData();
+    
     await api.auth.register(email, password);
     const u = await api.auth.me();
     setUser(u);
@@ -46,6 +54,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = async () => {
     await api.auth.logout();
+    
+    // Clear all session data on logout to prevent data leakage
+    clearSessionData();
+    
     setUser(null);
   };
 
