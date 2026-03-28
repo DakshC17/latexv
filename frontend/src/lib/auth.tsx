@@ -1,7 +1,7 @@
 "use client";
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import { api } from "./api";
-import { clearSessionData } from "./session-storage";
+import { clearSessionData, markFreshLogin } from "./session-storage";
 
 interface User {
   id: string;
@@ -41,6 +41,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await api.auth.login(email, password);
     const u = await api.auth.me();
     setUser(u);
+    
+    // Mark this as a fresh login to force new session
+    markFreshLogin();
   };
 
   const register = async (email: string, password: string) => {
@@ -50,6 +53,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await api.auth.register(email, password);
     const u = await api.auth.me();
     setUser(u);
+    
+    // Mark this as a fresh login to force new session
+    markFreshLogin();
   };
 
   const logout = async () => {

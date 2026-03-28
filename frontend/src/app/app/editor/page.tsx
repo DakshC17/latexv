@@ -2,7 +2,7 @@
 import { useState, useRef, useEffect } from "react";
 import { api, AgentEvent } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { getSessionData, setSessionData, clearSessionData } from "@/lib/session-storage";
+import { getSessionData, setSessionData, clearSessionData, shouldPersistSession, clearNewSessionRequest, clearSessionContent } from "@/lib/session-storage";
 import Sidebar from "@/components/Sidebar";
 import LatexEditor from "@/components/LatexEditor";
 
@@ -42,29 +42,39 @@ export default function EditorPage() {
   useEffect(() => {
     if (!user) return;
     
-    const sessionData = getSessionData();
-    
-    if (sessionData.conversationId) {
-      // Try to load the saved conversation
-      api.conversations.get(sessionData.conversationId).then((conv) => {
-        if (conv && conv.id) {
-          // Conversation exists and user has access - load it
-          loadConversation(conv);
-        }
-        setIsLoaded(true);
-      }).catch((error) => {
-        // Conversation not found or access denied - clear session data
-        console.log("Clearing session: conversation not accessible", error);
+    // Check if we should persist the session or start fresh
+    if (shouldPersistSession()) {
+      // Try to persist existing session
+      const sessionData = getSessionData();
+      
+      if (sessionData.conversationId) {
+        // Try to load the saved conversation
+        api.conversations.get(sessionData.conversationId).then((conv) => {
+          if (conv && conv.id) {
+            // Conversation exists and user has access - load it
+            console.log("Restoring session conversation:", conv.id);
+            loadConversation(conv);
+          }
+          setIsLoaded(true);
+        }).catch((error) => {
+          // Conversation not found or access denied - clear session data
+          console.log("Clearing session: conversation not accessible", error);
+          clearSessionData();
+          setIsLoaded(true);
+        });
+      } else if (sessionData.latexCode || sessionData.pdfUrl) {
+        // Has session data but no conversation ID - this might be orphaned data
+        console.log("Clearing orphaned session data");
         clearSessionData();
         setIsLoaded(true);
-      });
-    } else if (sessionData.latexCode || sessionData.pdfUrl) {
-      // Has session data but no conversation ID - this might be orphaned data
-      console.log("Clearing orphaned session data");
-      clearSessionData();
-      setIsLoaded(true);
+      } else {
+        setIsLoaded(true);
+      }
     } else {
-      // No session data - start fresh
+      // Start fresh session - clear any existing data and flags
+      console.log("Starting fresh session");
+      clearSessionData();
+      clearNewSessionRequest();
       setIsLoaded(true);
     }
   }, [user]);
@@ -131,8 +141,8 @@ export default function EditorPage() {
     setIsLiveEditing(false);
     setOriginalLatex("");
     
-    // Clear all session data
-    clearSessionData();
+    // Clear session content and mark as new session requested
+    clearSessionContent();
   };
 
   const startGeneration = async () => {
