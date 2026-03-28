@@ -34,6 +34,9 @@ export default function EditorPage() {
   const [sidebarRefresh, setSidebarRefresh] = useState(0);
   const latexRef = useRef<HTMLDivElement>(null);
   const [isLoaded, setIsLoaded] = useState(false);
+  const [hasGeneratedOnce, setHasGeneratedOnce] = useState(false);
+  const [isLiveEditing, setIsLiveEditing] = useState(false);
+  const [originalLatex, setOriginalLatex] = useState("");
 
   // Persist session to localStorage with proper cleanup
   useEffect(() => {
@@ -89,6 +92,12 @@ export default function EditorPage() {
     setPdfUrl(conv.pdf_url);
     setCurrentConversationId(conv.id);
     
+    // If there's existing latex, mark as generated once
+    if (conv.latex) {
+      setHasGeneratedOnce(true);
+      setOriginalLatex(conv.latex);
+    }
+    
     // Session data will be saved automatically by the useEffect hook
     
     api.conversations.touch(conv.id).catch(console.error);
@@ -118,6 +127,9 @@ export default function EditorPage() {
     setStatus("idle");
     setCurrentConversationId(null);
     setConversationHistory([]);
+    setHasGeneratedOnce(false);
+    setIsLiveEditing(false);
+    setOriginalLatex("");
     
     // Clear all session data
     clearSessionData();
@@ -128,11 +140,23 @@ export default function EditorPage() {
 
     const currentPrompt = prompt;
     setPrompt(""); // Clear prompt immediately
+    setError("");
+    
+    // Check if this is subsequent generation (live editing mode)
+    if (hasGeneratedOnce && latexCode.trim()) {
+      // This is a subsequent prompt - use live editing
+      await handleLiveEdit(currentPrompt);
+    } else {
+      // This is first generation - use normal generation
+      await handleFirstGeneration(currentPrompt);
+    }
+  };
+
+  const handleFirstGeneration = async (currentPrompt: string) => {
     setStatus("planning");
     setIsStreaming(true);
     setLatexCode("");
     setPdfUrl(null);
-    setError("");
     setAgentMessage("Analyzing request...");
 
     let receivedConversationId: string | null = null;
@@ -149,9 +173,6 @@ export default function EditorPage() {
           }
           if (data.error) {
             setError(data.error);
-          }
-          if (data.message) {
-            setAgentMessage(data.message);
           }
           if (data.conversation_id) {
             receivedConversationId = data.conversation_id;
@@ -173,18 +194,19 @@ export default function EditorPage() {
       if (latexCode || result?.latex) {
         setConversationHistory([
           ...conversationHistory,
-          { role: "user", content: prompt },
+          { role: "user", content: currentPrompt },
           { role: "assistant", content: latexCode || result?.latex || "" }
         ]);
+        // Mark that we've generated once and store original
+        setHasGeneratedOnce(true);
+        setOriginalLatex(latexCode || result?.latex || "");
       }
       
       if (result?.pdf_url) {
         setPdfUrl(result.pdf_url);
         setStatus("done");
-        setPrompt("");
       } else if (result?.status === "done") {
         setStatus("done");
-        setPrompt("");
       } else if (result?.error) {
         setError(result.error);
         setStatus("error");
@@ -196,6 +218,93 @@ export default function EditorPage() {
       setError("Generation failed");
       setStatus("error");
     }
+  };
+
+  const handleLiveEdit = async (currentPrompt: string) => {
+    setIsLiveEditing(true);
+    setStatus("generating");
+    setAgentMessage("Making live edits...");
+    
+    // Store the current latex as original if not stored yet
+    if (!originalLatex) {
+      setOriginalLatex(latexCode);
+    }
+    
+    try {
+      // Simulate live editing by showing gradual changes
+      // In a real implementation, this would call a live editing API
+      const result = await api.agent.stream(
+        currentPrompt, 
+        (data: AgentEvent) => {
+          if (data.status) {
+            setStatus(data.status as EditorStatus);
+          }
+          if (data.latex) {
+            // Show live editing effect by gradually updating the code
+            showLiveEditingEffect(latexCode, data.latex);
+          }
+          if (data.error) {
+            setError(data.error);
+          }
+        },
+        conversationHistory,
+        currentConversationId
+      );
+      
+      setIsLiveEditing(false);
+      
+      if (result?.latex) {
+        setConversationHistory([
+          ...conversationHistory,
+          { role: "user", content: currentPrompt },
+          { role: "assistant", content: result.latex }
+        ]);
+      }
+      
+      if (result?.pdf_url) {
+        setPdfUrl(result.pdf_url);
+        setStatus("done");
+      } else if (result?.status === "done") {
+        setStatus("done");
+      } else if (result?.error) {
+        setError(result.error);
+        setStatus("error");
+      } else {
+        setStatus("idle");
+      }
+    } catch (err) {
+      setIsLiveEditing(false);
+      setError("Live editing failed");
+      setStatus("error");
+    }
+  };
+
+  const showLiveEditingEffect = (currentCode: string, newCode: string) => {
+    // Create a smooth transition effect from current to new code
+    const currentLines = currentCode.split('\n');
+    const newLines = newCode.split('\n');
+    
+    // Simple diff-like approach for live editing visualization
+    let displayCode = currentCode;
+    
+    // Animate the transition over time
+    const animationSteps = 10;
+    const stepDelay = 100; // ms between each step
+    
+    for (let i = 0; i <= animationSteps; i++) {
+      setTimeout(() => {
+        const progress = i / animationSteps;
+        const blendedLines = newLines.slice(0, Math.floor(newLines.length * progress))
+          .concat(currentLines.slice(Math.floor(newLines.length * progress)));
+        
+        setLatexCode(blendedLines.join('\n'));
+      }, i * stepDelay);
+    }
+    
+    // Ensure we end with the final code
+    setTimeout(() => {
+      setLatexCode(newCode);
+    }, animationSteps * stepDelay + 100);
   };
 
   const compileDocument = async () => {
@@ -211,9 +320,6 @@ export default function EditorPage() {
       const result = await api.agent.stream(latexCode, (data: AgentEvent) => {
         if (data.error) {
           setError(data.error);
-        }
-        if (data.message) {
-          setAgentMessage(data.message);
         }
         if (data.conversation_id) {
           setCurrentConversationId(data.conversation_id);
@@ -332,12 +438,14 @@ export default function EditorPage() {
           overflow: "hidden"
         }}>
           {/* Agent Status Bar - Small, Above Prompt */}
-          {status !== "idle" && (
+          {(status !== "idle" || isLiveEditing) && (
             <div style={{
               padding: "8px 16px",
               margin: "8px 12px",
               borderRadius: "6px",
-              background: status === "planning" || status === "generating"
+              background: isLiveEditing
+                ? "rgba(139, 92, 246, 0.08)"
+                : status === "planning" || status === "generating"
                 ? "rgba(251, 191, 36, 0.08)"
                 : status === "fixing"
                 ? "rgba(248, 113, 113, 0.08)"
@@ -346,7 +454,9 @@ export default function EditorPage() {
                 : "rgba(74, 222, 128, 0.08)",
               backdropFilter: "blur(4px)",
               border: `1px solid ${
-                status === "planning" || status === "generating"
+                isLiveEditing
+                  ? "rgba(139, 92, 246, 0.2)"
+                  : status === "planning" || status === "generating"
                   ? "rgba(251, 191, 36, 0.2)"
                   : status === "fixing"
                   ? "rgba(248, 113, 113, 0.2)"
@@ -362,14 +472,16 @@ export default function EditorPage() {
                 width: "6px",
                 height: "6px",
                 borderRadius: "50%",
-                background: status === "planning" || status === "generating"
+                background: isLiveEditing
+                  ? "#8b5cf6"
+                  : status === "planning" || status === "generating"
                   ? "var(--accent)"
                   : status === "fixing"
                   ? "var(--error)"
                   : status === "compiling"
                   ? "var(--info)"
                   : "var(--success)",
-                animation: (status === "planning" || status === "generating" || status === "fixing" || status === "compiling")
+                animation: (isLiveEditing || status === "planning" || status === "generating" || status === "fixing" || status === "compiling")
                   ? "pulse-glow 1.5s ease-in-out infinite"
                   : "none",
                 flexShrink: 0,
@@ -377,7 +489,9 @@ export default function EditorPage() {
               <span style={{
                 fontSize: "11px",
                 fontWeight: "500",
-                color: status === "planning" || status === "generating"
+                color: isLiveEditing
+                  ? "#8b5cf6"
+                  : status === "planning" || status === "generating"
                   ? "var(--accent)"
                   : status === "fixing"
                   ? "var(--error)"
@@ -385,8 +499,9 @@ export default function EditorPage() {
                   ? "var(--info)"
                   : "var(--success)",
               }}>
-                {status === "planning" ? "Planning"
-                 : status === "generating" ? "Generating"
+                {isLiveEditing ? "Live Editing"
+                 : status === "planning" ? "Planning"
+                 : status === "generating" ? (hasGeneratedOnce ? "Editing" : "Generating")
                  : status === "compiling" ? "Compiling"
                  : status === "fixing" ? "Self-correcting"
                  : status === "done" ? "Done"
@@ -419,16 +534,24 @@ export default function EditorPage() {
                     width: "8px", 
                     height: "8px", 
                     borderRadius: "50%", 
-                    background: isStreaming ? "var(--accent)" : "var(--success)"
+                    background: isLiveEditing 
+                      ? "#8b5cf6" 
+                      : isStreaming 
+                      ? "var(--accent)" 
+                      : "var(--success)"
                   }} />
                   <span style={{ 
                     fontSize: "12px", 
                     fontWeight: "600", 
                     color: "var(--text-primary)" 
                   }}>
-                    {isStreaming ? "Generating LaTeX..." : "LaTeX Code"}
+                    {isLiveEditing 
+                      ? "Live Editing LaTeX..." 
+                      : isStreaming 
+                      ? (hasGeneratedOnce ? "Editing LaTeX..." : "Generating LaTeX...")
+                      : "LaTeX Code"}
                   </span>
-                  {isStreaming && (
+                  {(isStreaming || isLiveEditing) && (
                     <span style={{ 
                       fontSize: "10px", 
                       color: "var(--text-muted)" 
@@ -441,6 +564,8 @@ export default function EditorPage() {
                   value={latexCode}
                   onChange={setLatexCode}
                   disabled={isStreaming}
+                  isStreaming={isStreaming}
+                  autoScroll={true}
                   style={{
                     flex: 1,
                     minHeight: "300px"
@@ -464,10 +589,10 @@ export default function EditorPage() {
                   <polyline points="10 9 9 9 8 9" />
                 </svg>
                 <p style={{ fontSize: "14px", fontWeight: "500" }}>
-                  {status === "streaming" ? "Generating..." : "Your LaTeX code will appear here"}
+                  {isStreaming || isLiveEditing ? "Generating..." : "Your LaTeX code will appear here"}
                 </p>
                 <p style={{ fontSize: "12px", marginTop: "8px" }}>
-                  {status === "streaming" 
+                  {isStreaming || isLiveEditing
                     ? "Please wait while AI generates your document" 
                     : "Enter a prompt below and click Generate to start"
                   }
@@ -518,7 +643,10 @@ export default function EditorPage() {
                   startGeneration();
                 }
               }}
-              placeholder="Describe your document... (Ctrl+Enter to generate)"
+              placeholder={hasGeneratedOnce 
+                ? "Describe changes to make... (e.g., 'change title', 'add section', 'fix formatting') - Ctrl+Enter to edit"
+                : "Describe your document... (Ctrl+Enter to generate)"
+              }
               disabled={isStreaming || status === "compiling"}
               style={{
                 width: "100%", 
@@ -563,20 +691,32 @@ export default function EditorPage() {
                   gap: "8px",
                 }}
               >
-                {isStreaming || status === "compiling" ? (
+                {(isStreaming || isLiveEditing || status === "compiling") ? (
                   <>
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ animation: "spin 1s linear infinite" }}>
                       <circle cx="12" cy="12" r="10" strokeOpacity="0.3" />
                       <path d="M12 2a10 10 0 0 1 10 10" />
                     </svg>
-                    Generating...
+                    {isLiveEditing 
+                      ? "Live Editing..." 
+                      : hasGeneratedOnce 
+                      ? "Editing..." 
+                      : "Generating..."
+                    }
                   </>
                 ) : (
                   <>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <polygon points="5 3 19 12 5 21 5 3" />
-                    </svg>
-                    Generate
+                    {hasGeneratedOnce ? (
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                      </svg>
+                    ) : (
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <polygon points="5 3 19 12 5 21 5 3" />
+                      </svg>
+                    )}
+                    {hasGeneratedOnce ? "Edit Document" : "Generate"}
                   </>
                 )}
               </button>
@@ -615,7 +755,6 @@ export default function EditorPage() {
                 : "0 2px 12px rgba(251, 191, 36, 0.2)",
               transition: "all 0.2s ease",
               zIndex: 10,
-              boxShadow: "0 4px 16px rgba(251, 191, 36, 0.3)",
             }}
             title="Compile to PDF"
           >

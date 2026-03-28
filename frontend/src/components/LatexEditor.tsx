@@ -1,16 +1,45 @@
 "use client";
-import { useMemo } from "react";
+import { useMemo, useRef, useEffect } from "react";
 
 interface LatexEditorProps {
   value: string;
   onChange: (value: string) => void;
   disabled?: boolean;
   style?: React.CSSProperties;
+  isStreaming?: boolean;
+  autoScroll?: boolean;
 }
 
-export default function LatexEditor({ value, onChange, disabled, style }: LatexEditorProps) {
+export default function LatexEditor({ 
+  value, 
+  onChange, 
+  disabled, 
+  style, 
+  isStreaming = false,
+  autoScroll = false 
+}: LatexEditorProps) {
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Auto-scroll effect when content changes during streaming
+  useEffect(() => {
+    if (autoScroll && isStreaming && textareaRef.current) {
+      const textarea = textareaRef.current;
+      
+      // Scroll to bottom with smooth animation
+      textarea.scrollTop = textarea.scrollHeight;
+      
+      // Alternative method for better browser compatibility
+      textarea.scrollIntoView({ 
+        behavior: 'smooth', 
+        block: 'end',
+        inline: 'nearest' 
+      });
+    }
+  }, [value, autoScroll, isStreaming]);
+
   return (
     <textarea
+      ref={textareaRef}
       value={value}
       onChange={(e) => onChange(e.target.value)}
       disabled={disabled}
@@ -28,11 +57,11 @@ export default function LatexEditor({ value, onChange, disabled, style }: LatexE
         border: "1px solid var(--border)",
         resize: "none",
         outline: "none",
-        margin: 0,
+        scrollBehavior: isStreaming ? "smooth" : "auto",
         whiteSpace: "pre-wrap",
         wordBreak: "break-word",
         overflowY: "auto",
-        ...style
+        ...style,
       }}
     />
   );
