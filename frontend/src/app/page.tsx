@@ -1,5 +1,5 @@
 "use client";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth";
@@ -87,14 +87,23 @@ const steps = [
 ];
 
 export default function Home() {
-  const { user, loading } = useAuth();
-  const router = useRouter();
+  const { loading } = useAuth();
+  const [email, setEmail] = useState("");
+  const [isSubmitted, setIsSubmitted] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  useEffect(() => {
-    if (!loading && user) {
-      router.push("/app");
-    }
-  }, [user, loading, router]);
+  const handleEmailSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email || isSubmitting) return;
+
+    setIsSubmitting(true);
+    
+    // Simulate API call for now
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    setIsSubmitted(true);
+    setIsSubmitting(false);
+  };
 
   if (loading) {
     return (
@@ -169,36 +178,6 @@ export default function Home() {
           <Link href="/contact" style={{ color: "var(--text-secondary)", fontSize: "14px", fontWeight: "500", textDecoration: "none" }}>
             Contact
           </Link>
-          <Link
-            href="/login"
-            style={{
-              padding: "8px 20px",
-              borderRadius: "8px",
-              border: "1px solid var(--border)",
-              color: "var(--text-secondary)",
-              fontSize: "14px",
-              fontWeight: "500",
-              textDecoration: "none",
-              transition: "all 0.2s",
-            }}
-          >
-            Sign in
-          </Link>
-          <Link
-            href="/register"
-            style={{
-              padding: "8px 20px",
-              borderRadius: "8px",
-              background: "var(--accent)",
-              color: "#0c0c0e",
-              fontSize: "14px",
-              fontWeight: "600",
-              textDecoration: "none",
-              transition: "all 0.2s",
-            }}
-          >
-            Get started
-          </Link>
         </div>
       </header>
 
@@ -256,40 +235,108 @@ export default function Home() {
                 margin: "0 auto 48px",
               }}
             >
-              Describe your document in plain English. Our AI agent generates,
-              compiles, and fixes LaTeX — streaming every step in real-time.
+              The future of LaTeX document generation is coming. Be the first to know when we launch our revolutionary AI-powered editor.
             </p>
 
-            <div style={{ display: "flex", gap: "16px", justifyContent: "center", flexWrap: "wrap" }}>
-              <Link
-                href="/register"
-                style={{
-                  padding: "14px 32px",
-                  borderRadius: "10px",
-                  background: "var(--accent)",
-                  color: "#0c0c0e",
-                  fontSize: "15px",
-                  fontWeight: "600",
-                  textDecoration: "none",
-                }}
-              >
-                Start for free
-              </Link>
-              <Link
-                href="/login"
-                style={{
-                  padding: "14px 32px",
-                  borderRadius: "10px",
-                  border: "1px solid var(--border)",
-                  color: "var(--text-primary)",
-                  fontSize: "15px",
-                  fontWeight: "500",
-                  textDecoration: "none",
-                }}
-              >
-                Sign in
-              </Link>
-            </div>
+            {isSubmitted ? (
+              <div style={{ 
+                display: "flex", 
+                flexDirection: "column", 
+                alignItems: "center", 
+                gap: "16px",
+                padding: "24px",
+                borderRadius: "12px",
+                background: "var(--bg-surface)",
+                border: "1px solid var(--border)",
+                maxWidth: "400px",
+                margin: "0 auto"
+              }}>
+                <div style={{
+                  width: "48px",
+                  height: "48px",
+                  borderRadius: "50%",
+                  background: "var(--success)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: "#0c0c0e"
+                }}>
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                </div>
+                <div style={{ textAlign: "center" }}>
+                  <h3 style={{
+                    fontSize: "18px",
+                    fontWeight: "600",
+                    color: "var(--text-primary)",
+                    marginBottom: "8px"
+                  }}>
+                    You're on the list!
+                  </h3>
+                  <p style={{
+                    fontSize: "14px",
+                    color: "var(--text-secondary)",
+                    lineHeight: "1.5"
+                  }}>
+                    We'll notify you as soon as LatexV launches. Get ready for the future of LaTeX editing.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <form onSubmit={handleEmailSubmit} style={{ 
+                display: "flex", 
+                gap: "12px", 
+                justifyContent: "center", 
+                flexWrap: "wrap",
+                maxWidth: "400px",
+                margin: "0 auto"
+              }}>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="Enter your email"
+                  required
+                  style={{
+                    flex: "1",
+                    minWidth: "240px",
+                    padding: "14px 16px",
+                    borderRadius: "10px",
+                    border: "1px solid var(--border)",
+                    background: "var(--bg-surface)",
+                    color: "var(--text-primary)",
+                    fontSize: "15px",
+                    outline: "none",
+                    transition: "border-color 0.2s",
+                  }}
+                  onFocus={(e) => {
+                    e.target.style.borderColor = "var(--accent)";
+                  }}
+                  onBlur={(e) => {
+                    e.target.style.borderColor = "var(--border)";
+                  }}
+                />
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  style={{
+                    padding: "14px 24px",
+                    borderRadius: "10px",
+                    background: isSubmitting ? "var(--bg-surface)" : "var(--accent)",
+                    color: isSubmitting ? "var(--text-secondary)" : "#0c0c0e",
+                    fontSize: "15px",
+                    fontWeight: "600",
+                    border: "none",
+                    cursor: isSubmitting ? "not-allowed" : "pointer",
+                    transition: "all 0.2s",
+                    whiteSpace: "nowrap"
+                  }}
+                >
+                  {isSubmitting ? "Joining..." : "Join Waitlist"}
+                </button>
+              </form>
+            )}
           </div>
 
           <div
@@ -512,7 +559,7 @@ export default function Home() {
                 marginBottom: "20px",
               }}
             >
-              Ready to transform your LaTeX workflow?
+              Ready for the future of LaTeX?
             </h2>
             <p
               style={{
@@ -522,23 +569,76 @@ export default function Home() {
                 lineHeight: "1.7",
               }}
             >
-              Join thousands of researchers, students, and professionals who write better documents faster with LatexV.
+              Join the waitlist to be notified when LatexV launches. Be among the first to experience AI-powered LaTeX generation.
             </p>
-            <Link
-              href="/register"
-              style={{
-                display: "inline-block",
-                padding: "16px 40px",
-                borderRadius: "12px",
-                background: "var(--accent)",
-                color: "#0c0c0e",
-                fontSize: "16px",
-                fontWeight: "600",
-                textDecoration: "none",
-              }}
-            >
-              Get started free
-            </Link>
+            
+            {isSubmitted ? (
+              <div style={{
+                padding: "16px 24px",
+                borderRadius: "10px",
+                background: "var(--bg-surface)",
+                border: "1px solid var(--success)",
+                color: "var(--success)",
+                fontSize: "15px",
+                fontWeight: "500",
+                display: "inline-block"
+              }}>
+                Thanks! You're on the waitlist.
+              </div>
+            ) : (
+              <form onSubmit={handleEmailSubmit} style={{ 
+                display: "flex", 
+                gap: "12px", 
+                justifyContent: "center", 
+                flexWrap: "wrap",
+                maxWidth: "400px",
+                margin: "0 auto"
+              }}>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="Enter your email"
+                  required
+                  style={{
+                    flex: "1",
+                    minWidth: "240px",
+                    padding: "16px",
+                    borderRadius: "12px",
+                    border: "1px solid var(--border)",
+                    background: "var(--bg-base)",
+                    color: "var(--text-primary)",
+                    fontSize: "15px",
+                    outline: "none",
+                    transition: "border-color 0.2s",
+                  }}
+                  onFocus={(e) => {
+                    e.target.style.borderColor = "var(--accent)";
+                  }}
+                  onBlur={(e) => {
+                    e.target.style.borderColor = "var(--border)";
+                  }}
+                />
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  style={{
+                    padding: "16px 32px",
+                    borderRadius: "12px",
+                    background: isSubmitting ? "var(--bg-surface)" : "var(--accent)",
+                    color: isSubmitting ? "var(--text-secondary)" : "#0c0c0e",
+                    fontSize: "16px",
+                    fontWeight: "600",
+                    border: "none",
+                    cursor: isSubmitting ? "not-allowed" : "pointer",
+                    transition: "all 0.2s",
+                    whiteSpace: "nowrap"
+                  }}
+                >
+                  {isSubmitting ? "Joining..." : "Join Waitlist"}
+                </button>
+              </form>
+            )}
           </div>
         </section>
       </main>
@@ -577,18 +677,12 @@ export default function Home() {
             <Link href="/contact" style={{ color: "var(--text-muted)", fontSize: "14px", textDecoration: "none" }}>
               Contact
             </Link>
-            <Link href="/login" style={{ color: "var(--text-muted)", fontSize: "14px", textDecoration: "none" }}>
-              Sign in
-            </Link>
-            <Link href="/register" style={{ color: "var(--text-muted)", fontSize: "14px", textDecoration: "none" }}>
-              Get started
-            </Link>
           </div>
           
           <div style={{ display: "flex", gap: "24px", alignItems: "center", fontSize: "14px", color: "var(--text-muted)" }}>
             <Link href="/terms" style={{ color: "var(--text-muted)", textDecoration: "none" }}>Terms</Link>
             <Link href="/privacy" style={{ color: "var(--text-muted)", textDecoration: "none" }}>Privacy</Link>
-            <span>Built for professional documents</span>
+            <span>Coming soon</span>
           </div>
         </div>
       </footer>
