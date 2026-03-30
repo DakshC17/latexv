@@ -8,7 +8,13 @@ from fastapi.responses import FileResponse, StreamingResponse
 from auth.session import get_session
 from agents.generator import generate_document
 from agents.latex_agent import latex_agent, get_initial_state
-from db.models import Document, DocumentCreate, DocumentUpdate, ConversationCreate
+from db.models import (
+    Document,
+    DocumentCreate,
+    DocumentUpdate,
+    ConversationCreate,
+    WaitlistCreate,
+)
 from db import queries as db_queries
 from db import versions as version_queries
 from models.compile_models import CompileRequest
@@ -580,3 +586,87 @@ This message was sent via the LatexV contact form.
         "message": "Thank you for your message. We'll get back to you within 24 hours.",
         "recipient": contact_email,
     }
+
+
+def _get_client_id(request: Request) -> str:
+    """Get client identifier for rate limiting"""
+    forwarded_for = request.headers.get("x-forwarded-for")
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+@router.post("/waitlist")
+async def join_waitlist(request: Request, data: WaitlistCreate):
+    """Add email to pre-launch waitlist"""
+
+    # Rate limiting - prevent spam submissions
+    client_id = _get_client_id(request)
+    if redis_rate.is_rate_limited(client_id):
+        raise HTTPException(
+            status_code=429, detail="Too many requests. Please try again later."
+        )
+
+    try:
+        # Add to waitlist (handles duplicates gracefully)
+        entry = db_queries.add_to_waitlist(data)
+
+        print(f"[WAITLIST] New signup: {data.email} (source: {data.source})")
+
+        return {
+            "message": "Successfully joined the waitlist! We'll notify you when LatexV launches.",
+            "id": entry["id"],
+            "already_registered": False,
+        }
+    except Exception as e:
+        # Handle duplicate email case
+        if "duplicate key value" in str(e) or "violates unique constraint" in str(e):
+            return {
+                "message": "You're already on the waitlist! We'll notify you when LatexV launches.",
+                "already_registered": True,
+            }
+
+        print(f"[WAITLIST ERROR] Failed to add {data.email}: {str(e)}")
+        raise HTTPException(
+            status_code=400, detail="Failed to join waitlist. Please try again."
+        )
+
+
+@router.get("/waitlist/stats")
+async def get_waitlist_statistics(request: Request):
+    """Get waitlist statistics (public endpoint)"""
+    try:
+        stats = db_queries.get_waitlist_stats()
+        return {"total_signups": stats["total"], "active_subscribers": stats["active"]}
+    except Exception as e:
+        print(f"[WAITLIST STATS ERROR] {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to fetch waitlist stats")
+
+
+@router.get("/admin/waitlist")
+async def list_waitlist_entries(
+    request: Request, limit: Optional[int] = 100, offset: int = 0
+):
+    """Admin endpoint to view all waitlist entries"""
+
+    # Simple admin check - you might want to add proper authentication here
+    user_agent = request.headers.get("user-agent", "").lower()
+    if "localhost" not in str(request.url) and "127.0.0.1" not in str(request.url):
+        raise HTTPException(status_code=403, detail="Admin access only")
+
+    try:
+        entries = db_queries.list_waitlist_entries(limit=limit, offset=offset)
+        stats = db_queries.get_waitlist_stats()
+
+        return {
+            "entries": entries,
+            "stats": stats,
+            "pagination": {
+                "limit": limit,
+                "offset": offset,
+                "has_more": len(entries) == limit,
+            },
+        }
+    except Exception as e:
+        print(f"[ADMIN WAITLIST ERROR] {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to fetch waitlist entries")

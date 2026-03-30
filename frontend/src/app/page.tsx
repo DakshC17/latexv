@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth";
+import { waitlistApi } from "@/lib/api";
 
 const features = [
   {
@@ -91,18 +92,26 @@ export default function Home() {
   const [email, setEmail] = useState("");
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState("");
 
   const handleEmailSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || isSubmitting) return;
 
     setIsSubmitting(true);
+    setError("");
     
-    // Simulate API call for now
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    setIsSubmitted(true);
-    setIsSubmitting(false);
+    try {
+      const result = await waitlistApi.join(email, "website");
+      setIsSubmitted(true);
+      console.log("[WAITLIST] Successfully joined:", result);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Failed to join waitlist";
+      setError(errorMessage);
+      console.error("[WAITLIST] Error:", err);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   if (loading) {
@@ -284,58 +293,73 @@ export default function Home() {
                 </div>
               </div>
             ) : (
-              <form onSubmit={handleEmailSubmit} style={{ 
-                display: "flex", 
-                gap: "12px", 
-                justifyContent: "center", 
-                flexWrap: "wrap",
-                maxWidth: "400px",
-                margin: "0 auto"
-              }}>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="Enter your email"
-                  required
-                  style={{
-                    flex: "1",
-                    minWidth: "240px",
-                    padding: "14px 16px",
-                    borderRadius: "10px",
-                    border: "1px solid var(--border)",
-                    background: "var(--bg-surface)",
-                    color: "var(--text-primary)",
-                    fontSize: "15px",
-                    outline: "none",
-                    transition: "border-color 0.2s",
-                  }}
-                  onFocus={(e) => {
-                    e.target.style.borderColor = "var(--accent)";
-                  }}
-                  onBlur={(e) => {
-                    e.target.style.borderColor = "var(--border)";
-                  }}
-                />
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  style={{
-                    padding: "14px 24px",
-                    borderRadius: "10px",
-                    background: isSubmitting ? "var(--bg-surface)" : "var(--accent)",
-                    color: isSubmitting ? "var(--text-secondary)" : "#0c0c0e",
-                    fontSize: "15px",
-                    fontWeight: "600",
-                    border: "none",
-                    cursor: isSubmitting ? "not-allowed" : "pointer",
-                    transition: "all 0.2s",
-                    whiteSpace: "nowrap"
-                  }}
-                >
-                  {isSubmitting ? "Joining..." : "Join Waitlist"}
-                </button>
-              </form>
+              <div style={{ maxWidth: "400px", margin: "0 auto" }}>
+                <form onSubmit={handleEmailSubmit} style={{ 
+                  display: "flex", 
+                  gap: "12px", 
+                  justifyContent: "center", 
+                  flexWrap: "wrap",
+                  marginBottom: error ? "16px" : "0"
+                }}>
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="Enter your email"
+                    required
+                    style={{
+                      flex: "1",
+                      minWidth: "240px",
+                      padding: "14px 16px",
+                      borderRadius: "10px",
+                      border: error ? "1px solid #ef4444" : "1px solid var(--border)",
+                      background: "var(--bg-surface)",
+                      color: "var(--text-primary)",
+                      fontSize: "15px",
+                      outline: "none",
+                      transition: "border-color 0.2s",
+                    }}
+                    onFocus={(e) => {
+                      e.target.style.borderColor = error ? "#ef4444" : "var(--accent)";
+                    }}
+                    onBlur={(e) => {
+                      e.target.style.borderColor = error ? "#ef4444" : "var(--border)";
+                    }}
+                  />
+                  <button
+                    type="submit"
+                    disabled={isSubmitting}
+                    style={{
+                      padding: "14px 24px",
+                      borderRadius: "10px",
+                      background: isSubmitting ? "var(--bg-surface)" : "var(--accent)",
+                      color: isSubmitting ? "var(--text-secondary)" : "#0c0c0e",
+                      fontSize: "15px",
+                      fontWeight: "600",
+                      border: "none",
+                      cursor: isSubmitting ? "not-allowed" : "pointer",
+                      transition: "all 0.2s",
+                      whiteSpace: "nowrap"
+                    }}
+                  >
+                    {isSubmitting ? "Joining..." : "Join Waitlist"}
+                  </button>
+                </form>
+                
+                {error && (
+                  <div style={{
+                    padding: "12px 16px",
+                    borderRadius: "8px",
+                    background: "#fef2f2",
+                    border: "1px solid #fecaca",
+                    color: "#dc2626",
+                    fontSize: "14px",
+                    textAlign: "center"
+                  }}>
+                    {error}
+                  </div>
+                )}
+              </div>
             )}
           </div>
 
@@ -586,58 +610,73 @@ export default function Home() {
                 Thanks! You're on the waitlist.
               </div>
             ) : (
-              <form onSubmit={handleEmailSubmit} style={{ 
-                display: "flex", 
-                gap: "12px", 
-                justifyContent: "center", 
-                flexWrap: "wrap",
-                maxWidth: "400px",
-                margin: "0 auto"
-              }}>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="Enter your email"
-                  required
-                  style={{
-                    flex: "1",
-                    minWidth: "240px",
-                    padding: "16px",
-                    borderRadius: "12px",
-                    border: "1px solid var(--border)",
-                    background: "var(--bg-base)",
-                    color: "var(--text-primary)",
-                    fontSize: "15px",
-                    outline: "none",
-                    transition: "border-color 0.2s",
-                  }}
-                  onFocus={(e) => {
-                    e.target.style.borderColor = "var(--accent)";
-                  }}
-                  onBlur={(e) => {
-                    e.target.style.borderColor = "var(--border)";
-                  }}
-                />
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  style={{
-                    padding: "16px 32px",
-                    borderRadius: "12px",
-                    background: isSubmitting ? "var(--bg-surface)" : "var(--accent)",
-                    color: isSubmitting ? "var(--text-secondary)" : "#0c0c0e",
-                    fontSize: "16px",
-                    fontWeight: "600",
-                    border: "none",
-                    cursor: isSubmitting ? "not-allowed" : "pointer",
-                    transition: "all 0.2s",
-                    whiteSpace: "nowrap"
-                  }}
-                >
-                  {isSubmitting ? "Joining..." : "Join Waitlist"}
-                </button>
-              </form>
+              <div style={{ maxWidth: "400px", margin: "0 auto" }}>
+                <form onSubmit={handleEmailSubmit} style={{ 
+                  display: "flex", 
+                  gap: "12px", 
+                  justifyContent: "center", 
+                  flexWrap: "wrap",
+                  marginBottom: error ? "16px" : "0"
+                }}>
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="Enter your email"
+                    required
+                    style={{
+                      flex: "1",
+                      minWidth: "240px",
+                      padding: "16px",
+                      borderRadius: "12px",
+                      border: error ? "1px solid #ef4444" : "1px solid var(--border)",
+                      background: "var(--bg-base)",
+                      color: "var(--text-primary)",
+                      fontSize: "15px",
+                      outline: "none",
+                      transition: "border-color 0.2s",
+                    }}
+                    onFocus={(e) => {
+                      e.target.style.borderColor = error ? "#ef4444" : "var(--accent)";
+                    }}
+                    onBlur={(e) => {
+                      e.target.style.borderColor = error ? "#ef4444" : "var(--border)";
+                    }}
+                  />
+                  <button
+                    type="submit"
+                    disabled={isSubmitting}
+                    style={{
+                      padding: "16px 32px",
+                      borderRadius: "12px",
+                      background: isSubmitting ? "var(--bg-surface)" : "var(--accent)",
+                      color: isSubmitting ? "var(--text-secondary)" : "#0c0c0e",
+                      fontSize: "16px",
+                      fontWeight: "600",
+                      border: "none",
+                      cursor: isSubmitting ? "not-allowed" : "pointer",
+                      transition: "all 0.2s",
+                      whiteSpace: "nowrap"
+                    }}
+                  >
+                    {isSubmitting ? "Joining..." : "Join Waitlist"}
+                  </button>
+                </form>
+                
+                {error && (
+                  <div style={{
+                    padding: "12px 16px",
+                    borderRadius: "8px",
+                    background: "#fef2f2",
+                    border: "1px solid #fecaca",
+                    color: "#dc2626",
+                    fontSize: "14px",
+                    textAlign: "center"
+                  }}>
+                    {error}
+                  </div>
+                )}
+              </div>
             )}
           </div>
         </section>

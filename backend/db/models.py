@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 
 
 class Document(BaseModel):
@@ -51,3 +51,21 @@ class ConversationCreate(BaseModel):
     pdf_url: Optional[str] = None
     latex: Optional[str] = None
     status: str = "completed"
+
+
+class WaitlistEntry(BaseModel):
+    id: Optional[str] = None
+    email: EmailStr
+    source: str = "website"
+    status: str = "active"
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
+class WaitlistCreate(BaseModel):
+    email: EmailStr
+    source: str = "website"
+
+
+class WaitlistUpdate(BaseModel):
+    status: Optional[str] = None

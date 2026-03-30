@@ -8,11 +8,14 @@ from db.models import (
     DocumentUpdate,
     Conversation,
     ConversationCreate,
+    WaitlistCreate,
+    WaitlistUpdate,
 )
 
 
 TABLE_NAME = "documents"
 CONVERSATIONS_TABLE = "conversations"
+WAITLIST_TABLE = "waitlist"
 
 
 def create_document(data: DocumentCreate) -> dict:
@@ -97,3 +100,81 @@ def delete_conversation(conv_id: str) -> bool:
     supabase: Client = get_supabase()
     result = supabase.table(CONVERSATIONS_TABLE).delete().eq("id", conv_id).execute()
     return len(result.data) > 0
+
+
+# Waitlist functions
+def add_to_waitlist(data: WaitlistCreate) -> dict:
+    """Add email to waitlist. Returns the created entry or existing entry if duplicate."""
+    supabase: Client = get_supabase()
+    try:
+        # Try to insert new entry
+        result = supabase.table(WAITLIST_TABLE).insert(data.model_dump()).execute()
+        return result.data[0]
+    except Exception as e:
+        # Handle duplicate email case
+        if "duplicate key value" in str(e) or "violates unique constraint" in str(e):
+            # Return existing entry
+            result = (
+                supabase.table(WAITLIST_TABLE)
+                .select("*")
+                .eq("email", data.email)
+                .execute()
+            )
+            if result.data:
+                return result.data[0]
+        raise e
+
+
+def get_waitlist_entry(email: str) -> Optional[dict]:
+    """Get waitlist entry by email."""
+    supabase: Client = get_supabase()
+    result = supabase.table(WAITLIST_TABLE).select("*").eq("email", email).execute()
+    return result.data[0] if result.data else None
+
+
+def list_waitlist_entries(limit: Optional[int] = None, offset: int = 0) -> List[dict]:
+    """List all waitlist entries, ordered by creation date (newest first)."""
+    supabase: Client = get_supabase()
+    query = supabase.table(WAITLIST_TABLE).select("*").order("created_at", desc=True)
+
+    if limit:
+        query = query.range(offset, offset + limit - 1)
+
+    return query.execute().data
+
+
+def update_waitlist_entry(email: str, data: WaitlistUpdate) -> Optional[dict]:
+    """Update waitlist entry status."""
+    supabase: Client = get_supabase()
+    update_data = {k: v for k, v in data.model_dump().items() if v is not None}
+    if not update_data:
+        return get_waitlist_entry(email)
+
+    result = (
+        supabase.table(WAITLIST_TABLE).update(update_data).eq("email", email).execute()
+    )
+    return result.data[0] if result.data else None
+
+
+def get_waitlist_stats() -> dict:
+    """Get waitlist statistics."""
+    supabase: Client = get_supabase()
+
+    # Total count
+    total_result = supabase.table(WAITLIST_TABLE).select("id", count="exact").execute()
+    total_count = total_result.count
+
+    # Active count
+    active_result = (
+        supabase.table(WAITLIST_TABLE)
+        .select("id", count="exact")
+        .eq("status", "active")
+        .execute()
+    )
+    active_count = active_result.count
+
+    return {
+        "total": total_count,
+        "active": active_count,
+        "converted": total_count - active_count if total_count else 0,
+    }

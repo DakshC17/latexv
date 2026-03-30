@@ -195,3 +195,31 @@ export interface JobStatus {
   attempts?: number;
   meta?: { step: string };
 }
+
+// Waitlist API - no authentication required
+export const waitlistApi = {
+  join: async (email: string, source: string = "website") => {
+    const res = await fetch(`${API_BASE}/waitlist`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ email, source }),
+    });
+    
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({ detail: "Request failed" }));
+      throw new Error(error.detail || `HTTP ${res.status}`);
+    }
+    
+    return res.json();
+  },
+  
+  getStats: async () => {
+    const res = await fetch(`${API_BASE}/waitlist/stats`);
+    if (!res.ok) {
+      throw new Error("Failed to fetch waitlist stats");
+    }
+    return res.json();
+  }
+};
